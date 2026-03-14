@@ -1,0 +1,85 @@
+package com.example.blockchain;
+
+import java.util.List;
+
+public class Block {
+
+    private final int index;
+    private final long timestamp;
+    private final List<Transaction> transactions;
+    private final String previousHash;
+    private String hash;
+    private long nonce;
+
+    public Block(int index, long timestamp, List<Transaction> transactions, String previousHash) {
+        this.index = index;
+        this.timestamp = timestamp;
+        this.transactions = List.copyOf(transactions); // por seguridad
+        this.previousHash = previousHash;
+        this.nonce = 0;
+        this.hash = calculateHash();
+    }
+
+    private String calculateHash() {
+        String data = index +  String.valueOf(timestamp) +  transactionsData() + previousHash + nonce;
+        return HashUtil.sha256(data);
+    }
+
+    private String transactionsData() {
+        StringBuilder sb = new StringBuilder();
+        for (Transaction tx : transactions) {
+            sb.append(tx.dataForHash());
+        }
+        return sb.toString();
+    }
+
+    public boolean hasValidTransactions() {
+        for (Transaction tx : transactions) {
+            if (tx == null || !tx.isValid()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+     public void mineBlock(int difficulty) {
+        String target = "0".repeat(difficulty);
+
+        while (!hash.substring(0, difficulty).equals(target)) {
+            nonce++;
+            hash = calculateHash();
+        }
+    }
+
+    public boolean isValid(int difficulty) {
+        String target = "0".repeat(difficulty);
+        return hasValidTransactions()
+                && hash.equals(calculateHash())
+                && hash.startsWith(target);
+    }
+
+
+    public int getIndex() {
+        return index;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public List<Transaction> getTransactions() {
+        return transactions;
+    }
+
+    public String getPreviousHash() {
+        return previousHash;
+    }
+
+    public String getHash() {
+        return hash;
+    }
+
+    public long getNonce() {
+        return nonce;
+    }
+}
