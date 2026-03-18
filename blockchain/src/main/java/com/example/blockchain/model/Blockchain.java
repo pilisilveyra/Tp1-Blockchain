@@ -1,4 +1,4 @@
-package com.example.blockchain;
+package com.example.blockchain.model;
 
 import java.util.ArrayList;
 import java.util.List;

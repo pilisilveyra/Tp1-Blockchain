@@ -1,4 +1,4 @@
-package com.example.blockchain;
+package com.example.blockchain.util;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
