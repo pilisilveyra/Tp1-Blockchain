@@ -1,0 +1,3 @@
+spring.application.name=blockchain
+server.port=XXXX
+blockchain.difficulty=3

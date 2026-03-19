@@ -1,34 +1,105 @@
 package com.example.blockchain.controller;
 
+import com.example.blockchain.BlockMapper;
 import com.example.blockchain.dto.BlockDto;
 import com.example.blockchain.dto.ChainDto;
 import com.example.blockchain.dto.TransactionDto;
+import com.example.blockchain.model.Block;
+import com.example.blockchain.model.Transaction;
+import com.example.blockchain.service.BlockchainService;
+import com.example.blockchain.service.PeerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
 public class BlockchainController {
 
-    // GET /api/chain -> devuelve tu cadena completa
+    private final BlockchainService blockchainService;
+    private final PeerService peerService;
+
+    public BlockchainController(BlockchainService blockchainService, PeerService peerService) {
+        this.blockchainService = blockchainService;
+        this.peerService = peerService;
+    }
+
+    // GET /api/chain -> Devuelve la cadena completa
     @GetMapping("/chain")
     public ChainDto getChain() {
-        return null;
+        return BlockMapper.toDto(blockchainService.getChain());
     }
 
-    // POST /api/block -> recibis un bloque minado por otro nodo
-    @PostMapping("/block")
-    public ResponseEntity<String> receiveBlock(@RequestBody BlockDto blockDto) {
-        return ResponseEntity.ok("Bloque recibido");
+    // POST /api/transaction -> agrega transaccion al mempool local
+    // Body: { "from": "0xAlice", "to": "0xBob", "amount": 50, "signature": "0x..." }
+    @PostMapping("/transaction")
+    public ResponseEntity<Map<String, String>> addTransaction(@RequestBody TransactionDto Dto) {
+        Transaction tx = BlockMapper.toModel(Dto);
+        blockchainService.addPendingTransaction(tx);
+        return ResponseEntity.ok(Map.of(
+                "status", "ok",
+                "message", "Transacción agregada al mempool"
+        ));
     }
 
-    // POST /api/mine -> creas/minas un bloque a partir de transacciones
+    // GET /api/transactions/pending -> ver que hay en el mempool
+    @GetMapping("/transactions/pending")
+    public ResponseEntity<?> getPendingTransactions() {
+        var pending = blockchainService.getPendingTransactions().stream()
+                .map(BlockMapper::toDto)
+                .toList();
+        return ResponseEntity.ok(Map.of("pending", pending, "count", pending.size()));
+    }
+
+    // POST /api/mine -> Mina las transacciones pendientes, agrega el bloque y lo propaga a los peers
     @PostMapping("/mine")
-    public BlockDto mineBlock(@RequestBody List<TransactionDto> transactions) {
-        return null;
+    public ResponseEntity<?> mine() {
+        try {
+            Block minedBlock = blockchainService.mineBlock();
+            peerService.broadcastBlock(minedBlock); // propago a la red
+            return ResponseEntity.ok(BlockMapper.toDto(minedBlock));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
-    // agregar una transaccion: @PostMapping("/transaction")
-    // ver las transacciones pendientes: @GetMapping("/transactions/pending")
+
+    // POST /api/block -> Recibe bloque minado por otro nodo, si es valido lo agrega
+    @PostMapping("/block")
+    public ResponseEntity<Map<String, String>> receiveBlock(@RequestBody BlockDto Dto) {
+        Block block = BlockMapper.toModel(Dto);
+        boolean added = blockchainService.receiveBlock(block);
+        if (added) {
+            return ResponseEntity.ok(Map.of("status", "ok", "message", "Bloque aceptado"));
+        }
+        return ResponseEntity.badRequest().body(Map.of("status", "rejected", "message", "Bloque inválido"));
+    }
+
+    // POST /api/peers -> registra un nuevo peer
+    // Body: { "url": "http://192.168.1.10:8080" }
+    @PostMapping("/peers")
+    public ResponseEntity<Map<String, Object>> registerPeer(@RequestBody Map<String, String> body) {
+        String url = body.get("url");
+        if (url == null || url.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Falta el campo 'url'"));
+        }
+        peerService.registerPeer(url);
+        return ResponseEntity.ok(Map.of("status", "ok", "peers", peerService.getPeers()));
+    }
+
+    //* GET /api/peers -> Lista los peers conocidos
+    @GetMapping("/peers")
+    public ResponseEntity<Map<String, Object>> getPeers() {
+        return ResponseEntity.ok(Map.of("peers", peerService.getPeers()));
+    }
+
+    // POST /api/peers/sync -> Pide la cadena a todos los peers y reemplaza la local si alguno tiene una más larga
+    @PostMapping("/peers/sync")
+    public ResponseEntity<Map<String, Object>> syncWithPeers() {
+        peerService.syncWithPeers();
+        return ResponseEntity.ok(Map.of(
+                "status", "ok",
+                "chainLength", blockchainService.getChain().size()
+        ));
+    }
 }
