@@ -6,10 +6,14 @@ import com.example.blockchain.dto.ChainDto;
 import com.example.blockchain.model.Block;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -75,5 +79,54 @@ public class PeerService {
 
     private String normalizeUrl(String url) {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    @Value("${blockchain.seed-url:}")
+    private String seedUrl;
+
+    @Value("${blockchain.my-url:}")
+    private String myUrl;
+
+    // Se ejecuta automáticamente cuando Spring termina de iniciar la app
+    @EventListener(ApplicationReadyEvent.class)
+    public void joinNetwork() {
+        if (seedUrl.isBlank() || myUrl.isBlank()) return;
+        // Si soy el seed no me conecto a nadie
+        if (myUrl.equals(seedUrl)) {
+            log.info("Soy el seed node, esperando conexiones...");
+            return;
+        }
+        try {
+            // Le aviso al seed que existo
+            Map<String, Object> response = restTemplate.postForObject(
+                    seedUrl + "/api/peers/join",
+                    Map.of("url", myUrl),
+                    Map.class
+            );
+            // Agrego los peers que me devolvió el seed
+            List<String> knownPeers = (List<String>) response.get("peers");
+            knownPeers.forEach(this::registerPeer);
+            // También agrego el seed como peer
+            registerPeer(seedUrl);
+            // Sincronizo la cadena
+            syncWithPeers();
+            log.info("Conectado a la red. Peers conocidos: {}", peers);
+        } catch (Exception e) {
+            log.warn("No se pudo conectar al seed {}: {}", seedUrl, e.getMessage());
+        }
+    }
+
+    public void broadcastNewPeer(String newPeerUrl) {
+        for (String peer : peers) {
+            try {
+                restTemplate.postForEntity(
+                        peer + "/api/peers",
+                        Map.of("url", newPeerUrl),
+                        String.class
+                );
+            } catch (Exception e) {
+                log.warn("No se pudo notificar a {}: {}", peer, e.getMessage());
+            }
+        }
     }
 }

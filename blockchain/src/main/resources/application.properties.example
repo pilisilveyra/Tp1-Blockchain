@@ -1,3 +1,5 @@
 spring.application.name=blockchain
-server.port=XXXX
+server.port=8080
 blockchain.difficulty=3
+blockchain.seed-url=http://IP_DEL_SEED:8080
+blockchain.my-url=http://IP_PROPIA:8080

@@ -102,4 +102,18 @@ public class BlockchainController {
                 "chainLength", blockchainService.getChain().size()
         ));
     }
+
+    @PostMapping("/peers/join")
+    public ResponseEntity<Map<String, Object>> join(@RequestBody Map<String, String> body) {
+        String newPeerUrl = body.get("url");
+        if (newPeerUrl == null || newPeerUrl.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Falta el campo 'url'"));
+        }
+        // Le avisa a todos los peers existentes que llegó uno nuevo
+        peerService.broadcastNewPeer(newPeerUrl);
+        // Lo agrega a su propia lista
+        peerService.registerPeer(newPeerUrl);
+        // Le devuelve la lista de todos los peers para que los agregue
+        return ResponseEntity.ok(Map.of("peers", peerService.getPeers()));
+    }
 }
