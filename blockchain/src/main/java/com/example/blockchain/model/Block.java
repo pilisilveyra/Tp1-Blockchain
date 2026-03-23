@@ -1,6 +1,6 @@
 package com.example.blockchain.model;
 
-import com.example.blockchain.util.HashUtil;
+import com.example.blockchain.util.CryptoUtil;
 
 import java.util.List;
 
@@ -34,7 +34,7 @@ public class Block {
 
     private String calculateHash() {
         String data = index +  String.valueOf(timestamp) +  transactionsData() + previousHash + nonce;
-        return HashUtil.sha256(data);
+        return CryptoUtil.sha256(data);
     }
 
     private String transactionsData() {
