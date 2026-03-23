@@ -13,9 +13,15 @@ public class BlockMapper {
     private BlockMapper() {}
 
   // Model -> Dto
-    public static TransactionDto toDto(Transaction tx) {
-        return new TransactionDto(tx.getFrom(), tx.getTo(), tx.getAmount(), tx.getSignature());
-    }
+  public static TransactionDto toDto(Transaction tx) {
+      return new TransactionDto(
+              tx.getFrom(),
+              tx.getTo(),
+              tx.getAmount(),
+              tx.getPublicKey(),
+              tx.getSignature()
+      );
+  }
 
     public static BlockDto toDto(Block block) {
         List<TransactionDto> txDtos = block.getTransactions().stream()
@@ -37,10 +43,15 @@ public class BlockMapper {
     }
 
     // Dto -> Model
-    public static Transaction toModel(TransactionDto Dto) {
-        return new Transaction(Dto.from(), Dto.to(), Dto.amount(), Dto.signature());
+    public static Transaction toModel(TransactionDto dto) {
+        return new Transaction(
+                dto.from(),
+                dto.to(),
+                dto.amount(),
+                dto.publicKey(),
+                dto.signature()
+        );
     }
-
     public static Block toModel(BlockDto Dto) {
         List<Transaction> txs = Dto.transactions().stream()
                 .map(BlockMapper::toModel)
