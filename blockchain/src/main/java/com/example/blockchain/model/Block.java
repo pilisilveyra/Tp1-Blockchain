@@ -33,7 +33,7 @@ public class Block {
     }
 
     private String calculateHash() {
-        String data = index +  String.valueOf(timestamp) +  transactionsData() + previousHash + nonce;
+        String data = index + "|" + timestamp + "|" + transactionsData() + "|" + previousHash + "|" + nonce;
         return CryptoUtil.sha256(data);
     }
 

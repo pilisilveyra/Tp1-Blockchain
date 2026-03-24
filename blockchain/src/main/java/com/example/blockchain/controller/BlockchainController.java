@@ -34,8 +34,8 @@ public class BlockchainController {
     // POST /api/transaction -> agrega transaccion al mempool local
     // Body: { "from": "0xAlice", "to": "0xBob", "amount": 50, "signature": "0x..." }
     @PostMapping("/transaction")
-    public ResponseEntity<Map<String, String>> addTransaction(@RequestBody TransactionDto Dto) {
-        Transaction tx = BlockMapper.toModel(Dto);
+    public ResponseEntity<Map<String, String>> addTransaction(@RequestBody TransactionDto dto) {
+        Transaction tx = BlockMapper.toModel(dto);
         blockchainService.addPendingTransaction(tx);
         return ResponseEntity.ok(Map.of(
                 "status", "ok",
@@ -55,24 +55,25 @@ public class BlockchainController {
     // POST /api/mine -> Mina las transacciones pendientes, agrega el bloque y lo propaga a los peers
     @PostMapping("/mine")
     public ResponseEntity<?> mine() {
-        try {
-            Block minedBlock = blockchainService.mineBlock();
-            peerService.broadcastBlock(minedBlock); // propago a la red
-            return ResponseEntity.ok(BlockMapper.toDto(minedBlock));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+        Block minedBlock = blockchainService.mineBlock();
+        peerService.broadcastBlock(minedBlock);
+        return ResponseEntity.ok(BlockMapper.toDto(minedBlock));
     }
 
     // POST /api/block -> Recibe bloque minado por otro nodo, si es valido lo agrega
     @PostMapping("/block")
-    public ResponseEntity<Map<String, String>> receiveBlock(@RequestBody BlockDto Dto) {
-        Block block = BlockMapper.toModel(Dto);
+    public ResponseEntity<Map<String, String>> receiveBlock(@RequestBody BlockDto dto) {
+        Block block = BlockMapper.toModel(dto);
         boolean added = blockchainService.receiveBlock(block);
-        if (added) {
-            return ResponseEntity.ok(Map.of("status", "ok", "message", "Bloque aceptado"));
+
+        if (!added) {
+            throw new IllegalArgumentException("Bloque inválido");
         }
-        return ResponseEntity.badRequest().body(Map.of("status", "rejected", "message", "Bloque inválido"));
+
+        return ResponseEntity.ok(Map.of(
+                "status", "ok",
+                "message", "Bloque aceptado"
+        ));
     }
 
     // POST /api/peers -> registra un nuevo peer
@@ -81,7 +82,7 @@ public class BlockchainController {
     public ResponseEntity<Map<String, Object>> registerPeer(@RequestBody Map<String, String> body) {
         String url = body.get("url");
         if (url == null || url.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Falta el campo 'url'"));
+            throw new IllegalArgumentException("Falta el campo 'url'");
         }
         peerService.registerPeer(url);
         return ResponseEntity.ok(Map.of("status", "ok", "peers", peerService.getPeers()));
@@ -107,13 +108,15 @@ public class BlockchainController {
     public ResponseEntity<Map<String, Object>> join(@RequestBody Map<String, String> body) {
         String newPeerUrl = body.get("url");
         if (newPeerUrl == null || newPeerUrl.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Falta el campo 'url'"));
+            throw new IllegalArgumentException("Falta el campo 'url'");
         }
         // Le avisa a todos los peers existentes que llegó uno nuevo
         peerService.broadcastNewPeer(newPeerUrl);
         // Lo agrega a su propia lista
         peerService.registerPeer(newPeerUrl);
         // Le devuelve la lista de todos los peers para que los agregue
-        return ResponseEntity.ok(Map.of("peers", peerService.getPeers()));
+        return ResponseEntity.ok(Map.of(
+                "peers", peerService.getPeers()
+        ));
     }
 }
