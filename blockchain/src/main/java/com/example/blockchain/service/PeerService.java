@@ -33,7 +33,17 @@ public class PeerService {
     }
 
     public void registerPeer(String peerUrl) {
+        if (peerUrl == null || peerUrl.isBlank()) {
+            throw new IllegalArgumentException("URL de peer inválida");
+        }
+
         String normalized = normalizeUrl(peerUrl);
+
+        if (myUrl != null && !myUrl.isBlank() && normalized.equals(normalizeUrl(myUrl))) {
+            log.info("Se ignoró el auto-registro del nodo {}", normalized);
+            return;
+        }
+
         peers.add(normalized);
         log.info("Peer registrado: {}", normalized);
     }
