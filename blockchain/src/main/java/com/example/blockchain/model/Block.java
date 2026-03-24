@@ -64,6 +64,12 @@ public class Block {
     }
 
     public boolean isValid(int difficulty) {
+        if (index < 0) return false;
+        if (timestamp <= 0) return false;
+        if (transactions == null) return false;
+        if (previousHash == null || previousHash.isBlank()) return false;
+        if (hash == null || hash.isBlank()) return false;
+
         String target = "0".repeat(difficulty);
         return hasValidTransactions()
                 && hash.equals(calculateHash())

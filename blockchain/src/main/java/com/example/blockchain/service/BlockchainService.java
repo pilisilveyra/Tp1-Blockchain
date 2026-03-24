@@ -45,8 +45,20 @@ public class BlockchainService {
             throw new IllegalArgumentException("La transacción ya existe en el mempool");
         }
 
+        if (transactionAlreadyInChain(tx)) {
+            throw new IllegalArgumentException("La transacción ya fue confirmada en un bloque");
+        }
+
         pendingTransactions.add(tx);
         log.info("Transacción pendiente agregada. Total en mempool: {}", pendingTransactions.size());
+    }
+
+    private void removePendingTransactionsIncludedIn(Block block) {
+        List<String> minedTxIds = block.getTransactions().stream()
+                .map(Transaction::getId)
+                .toList();
+
+        pendingTransactions.removeIf(tx -> minedTxIds.contains(tx.getId()));
     }
 
     public List<Transaction> getPendingTransactions() {
@@ -68,7 +80,7 @@ public class BlockchainService {
         log.info("Minando bloque #{}...", newBlock.getIndex());
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
-        pendingTransactions.clear();
+        removePendingTransactionsIncludedIn(newBlock);
         log.info("Bloque #{} minado: {}", newBlock.getIndex(), newBlock.getHash());
         return newBlock;
     }
@@ -77,6 +89,7 @@ public class BlockchainService {
     public synchronized boolean receiveBlock(Block newBlock) {
         if (isValidNewBlock(newBlock, getLatestBlock())) {
             chain.add(newBlock);
+            removePendingTransactionsIncludedIn(newBlock);
             log.info("Bloque #{} recibido y agregado: {}", newBlock.getIndex(), newBlock.getHash());
             return true;
         }
@@ -96,11 +109,19 @@ public class BlockchainService {
         return false;
     }
 
+    private boolean transactionAlreadyInChain(Transaction tx) {
+        return chain.stream()
+                .flatMap(block -> block.getTransactions().stream())
+                .anyMatch(existing -> existing.getId().equals(tx.getId()));
+    }
+
 
     public boolean isValidNewBlock(Block newBlock, Block previousBlock) {
         if (newBlock == null || previousBlock == null) return false;
         if (previousBlock.getIndex() + 1 != newBlock.getIndex()) return false;
         if (!previousBlock.getHash().equals(newBlock.getPreviousHash())) return false;
+        if (newBlock.getTimestamp() <= previousBlock.getTimestamp()) return false;
+        if (newBlock.getTimestamp() > System.currentTimeMillis() + 120_000) return false;
         if (!newBlock.hasValidTransactions()) return false;
         return newBlock.isValid(difficulty);
     }
