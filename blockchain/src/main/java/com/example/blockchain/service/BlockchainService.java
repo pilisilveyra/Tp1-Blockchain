@@ -37,6 +37,14 @@ public class BlockchainService {
         if (tx == null || !tx.isValid()) {
             throw new IllegalArgumentException("Transacción inválida");
         }
+
+        boolean alreadyPending = pendingTransactions.stream()
+                .anyMatch(existing -> existing.getId().equals(tx.getId()));
+
+        if (alreadyPending) {
+            throw new IllegalArgumentException("La transacción ya existe en el mempool");
+        }
+
         pendingTransactions.add(tx);
         log.info("Transacción pendiente agregada. Total en mempool: {}", pendingTransactions.size());
     }

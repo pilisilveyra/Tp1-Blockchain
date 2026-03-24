@@ -17,6 +17,10 @@ public class Transaction {
         this.signature = signature;
     }
 
+    public String getId() {
+        return CryptoUtil.sha256(dataForHash());
+    }
+
     public boolean isValid() {
         if (from == null || from.isBlank()) {
             return false;
