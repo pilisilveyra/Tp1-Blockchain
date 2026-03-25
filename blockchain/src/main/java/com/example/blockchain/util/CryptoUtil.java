@@ -23,10 +23,6 @@ public class CryptoUtil {
         return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
 
-    public static String privateKeyToBase64(PrivateKey privateKey) {
-        return Base64.getEncoder().encodeToString(privateKey.getEncoded());
-    }
-
     public static PublicKey publicKeyFromBase64(String publicKeyBase64) {
         try {
             byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
@@ -35,12 +31,6 @@ public class CryptoUtil {
         } catch (Exception e) {
             throw new RuntimeException("No se pudo reconstruir la public key", e);
         }
-    }
-
-    public static PrivateKey privateKeyFromBase64(String privateKeyBase64) {
-        throw new UnsupportedOperationException(
-                "Firmar desde memoria"
-        );
     }
 
     public static String sign(PrivateKey privateKey, String data) {
