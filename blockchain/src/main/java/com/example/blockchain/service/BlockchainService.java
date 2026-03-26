@@ -153,7 +153,4 @@ public class BlockchainService {
         return List.copyOf(chain);
     }
 
-    public int getDifficulty() {
-        return difficulty;
-    }
 }
