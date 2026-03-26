@@ -47,7 +47,7 @@ public class BlockMapperTest {
         1,
         System.currentTimeMillis(),
         List.of(tx),
-        "previous-hash"
+        "previous hash"
     );
     block.mineBlock(3);
 
@@ -70,7 +70,7 @@ public class BlockMapperTest {
         1,
         System.currentTimeMillis(),
         List.of(tx),
-        "previous-hash"
+        "previous hash"
     );
     original.mineBlock(3);
 
