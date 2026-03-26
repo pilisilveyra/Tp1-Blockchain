@@ -23,10 +23,6 @@ public class CryptoUtil {
         return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
 
-    public static String privateKeyToBase64(PrivateKey privateKey) {
-        return Base64.getEncoder().encodeToString(privateKey.getEncoded());
-    }
-
     public static PublicKey publicKeyFromBase64(String publicKeyBase64) {
         try {
             byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
@@ -37,11 +33,8 @@ public class CryptoUtil {
         }
     }
 
-    public static PrivateKey privateKeyFromBase64(String privateKeyBase64) {
-        throw new UnsupportedOperationException(
-                "Firmar desde memoria"
-        );
-    }
+    // no implementamos para private key porque no es necesario para el funcionamiento de la blockchain,
+    // y así evitamos exponer código que manipule claves privadas
 
     public static String sign(PrivateKey privateKey, String data) {
         try {
