@@ -123,5 +123,54 @@ public class BlockchainServiceFlowTest {
 
         assertEquals(before, service.getPendingTransactions().size());
     }
+
+    @Test
+    void cannotMineBlockWhenThereAreNoPendingTransactions() {
+        BlockchainService service = new BlockchainService(3);
+
+        int pendingBefore = service.getPendingTransactions().size();
+        int chainBefore = service.getChain().size();
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                service::mineBlock
+        );
+        assertEquals("No hay transacciones pendientes para minar", ex.getMessage());
+
+        assertEquals(pendingBefore, service.getPendingTransactions().size());
+        assertEquals(chainBefore, service.getChain().size());
+    }
+
+    @Test
+    void miningAddsNewBlockToChain() {
+        BlockchainService service = new BlockchainService(3);
+
+        Transaction tx = TestTxUtils.createValidTransaction(50.0);
+        service.addPendingTransaction(tx);
+
+        int chainBefore = service.getChain().size();
+
+        service.mineBlock();
+
+        assertEquals(chainBefore + 1, service.getChain().size());
+    }
+
+    @Test
+    void minedBlockPointsToPreviousBlock() {
+        BlockchainService service = new BlockchainService(3);
+
+        Block previous = service.getLatestBlock();
+
+        Transaction tx = TestTxUtils.createValidTransaction(50.0);
+        service.addPendingTransaction(tx);
+
+        Block mined = service.mineBlock();
+
+        assertEquals(previous.getHash(), mined.getPreviousHash());
+        assertEquals(previous.getIndex() + 1, mined.getIndex());
+    }
+    
+
+    
 }
 

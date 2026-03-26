@@ -21,6 +21,7 @@ public class Block {
         this.nonce = 0;
         this.hash = calculateHash();
     }
+
     // Constructor para cuando recibis un bloque de otro nodo (ya viene con hash y nonce)
     public Block(int index, long timestamp, List<Transaction> transactions,
                  String previousHash, String hash, long nonce) {
