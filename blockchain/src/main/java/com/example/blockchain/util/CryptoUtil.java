@@ -61,7 +61,7 @@ public class CryptoUtil {
 
             Signature verifier = Signature.getInstance("Ed25519");
             verifier.initVerify(publicKey);
-            verifier.update(data.getBytes(StandardCharsets.UTF_8));
+            verifier.update(data.getBytes(StandardCharsets.UTF_8)); //paso los datos firmados
 
             byte[] signatureBytes = Base64.getDecoder().decode(signatureBase64);
             return verifier.verify(signatureBytes);
