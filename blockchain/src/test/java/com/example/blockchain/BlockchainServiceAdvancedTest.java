@@ -185,4 +185,21 @@ public class BlockchainServiceAdvancedTest {
     assertEquals(1, local.getChain().size());
   }
 
+  @Test
+  void getPendingTransactionsReturnsSnapshotNotLiveReference() {
+    BlockchainService service = new BlockchainService(3);
+
+    Transaction tx1 = TestTxUtils.createValidTransaction(50.0);
+    service.addPendingTransaction(tx1);
+
+    List<Transaction> snapshot = service.getPendingTransactions();
+
+    Transaction tx2 = TestTxUtils.createValidTransaction(20.0);
+    service.addPendingTransaction(tx2);
+
+    assertEquals(1, snapshot.size());
+    assertEquals(2, service.getPendingTransactions().size());
+  }
+
+
 }
