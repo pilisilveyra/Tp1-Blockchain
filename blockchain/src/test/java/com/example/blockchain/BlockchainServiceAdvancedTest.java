@@ -26,4 +26,20 @@ public class BlockchainServiceAdvancedTest {
     assertTrue(mined.getTransactions().contains(tx1));
     assertTrue(mined.getTransactions().contains(tx2));
   }
+
+  @Test
+  void miningBlockRemovesTransactionsFromPending() {
+    BlockchainService service = new BlockchainService(3);
+
+    Transaction tx1 = TestTxUtils.createValidTransaction(50.0);
+    Transaction tx2 = TestTxUtils.createValidTransaction(20.0);
+
+    service.addPendingTransaction(tx1);
+    service.addPendingTransaction(tx2);
+
+    service.mineBlock();
+
+    assertEquals(0, service.getPendingTransactions().size());
+  }
+
 }
