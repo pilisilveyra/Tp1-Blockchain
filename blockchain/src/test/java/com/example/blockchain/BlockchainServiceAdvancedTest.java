@@ -186,7 +186,7 @@ public class BlockchainServiceAdvancedTest {
   }
 
   @Test
-  void getPendingTransactionsReturnsSnapshotNotLiveReference() {
+  void getPendingTransactionsReturnsCopyNotLiveReference() {
     BlockchainService service = new BlockchainService(3);
 
     Transaction tx1 = TestTxUtils.createValidTransaction(50.0);
