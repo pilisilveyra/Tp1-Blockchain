@@ -6,7 +6,7 @@ import com.example.blockchain.util.CryptoUtil;
 import java.security.KeyPair;
 
 /**
- * Utilidades para armar transacciones válidas en tests.
+ * para armar transacciones válidas en tests.
  */
 public final class TestTxUtils {
 
@@ -35,6 +35,21 @@ public final class TestTxUtils {
             throw new IllegalStateException("La transacción generada no es válida");
         }
         return tx;
+    }
+
+    public static Transaction createValidTransaction(double amount) {
+        return createValidTransaction(amount, createNewAddress());
+    }
+
+    public static Transaction createInvalidTransaction() {
+        // amount <= 0 hace que Transaction.isValid() devuelva false antes de validar firma
+        return new Transaction(
+                "0xSender",
+                "0xReceiver",
+                0.0,
+                "publicKey",
+                "signature"
+        );
     }
 }
 

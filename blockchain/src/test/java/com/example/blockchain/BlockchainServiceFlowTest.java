@@ -53,5 +53,75 @@ public class BlockchainServiceFlowTest {
         service.addPendingTransaction(tx2);
         assertEquals(2, service.getPendingTransactions().size());
     }
+
+    @Test
+    void addingNullTransactionThrowsExceptionAndDoesNotChangePending() {
+        BlockchainService service = new BlockchainService(3);
+
+        int before = service.getPendingTransactions().size();
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addPendingTransaction(null)
+        );
+        assertEquals("Transacción inválida", ex.getMessage());
+
+        assertEquals(before, service.getPendingTransactions().size());
+    }
+
+    @Test
+    void addingInvalidTransactionThrowsExceptionAndDoesNotChangePending() {
+        BlockchainService service = new BlockchainService(3);
+
+        int before = service.getPendingTransactions().size();
+
+        Transaction invalidTx = TestTxUtils.createInvalidTransaction();
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addPendingTransaction(invalidTx)
+        );
+        assertEquals("Transacción inválida", ex.getMessage());
+
+        assertEquals(before, service.getPendingTransactions().size());
+    }
+
+    @Test
+    void addingDuplicateTransactionToPendingThrowsAndDoesNotChangePending() {
+        BlockchainService service = new BlockchainService(3);
+
+        Transaction tx = TestTxUtils.createValidTransaction(50.0);
+        service.addPendingTransaction(tx);
+
+        int before = service.getPendingTransactions().size();
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addPendingTransaction(tx)
+        );
+        assertEquals("La transacción ya existe en el mempool", ex.getMessage());
+
+        assertEquals(before, service.getPendingTransactions().size());
+    }
+
+    @Test
+    void addingTransactionAlreadyInChainThrowsAndDoesNotChangePending() {
+        BlockchainService service = new BlockchainService(3);
+
+        Transaction tx = TestTxUtils.createValidTransaction(50.0);
+        service.addPendingTransaction(tx);
+
+        service.mineBlock();
+
+        int before = service.getPendingTransactions().size(); // debería ser 0
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addPendingTransaction(tx)
+        );
+        assertEquals("La transacción ya fue confirmada en un bloque", ex.getMessage());
+
+        assertEquals(before, service.getPendingTransactions().size());
+    }
 }
 
