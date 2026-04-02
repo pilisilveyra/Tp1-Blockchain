@@ -27,23 +27,74 @@ public class PeerService {
     private final RestTemplate restTemplate;
     private final BlockchainService blockchainService;
 
+    @Value("${blockchain.seed-peers:}")
+    private String seedPeersConfig; // pueden ser varios ej: "http://IP1:8080,http://IP2:8080"
+
+    @Value("${blockchain.my-url:}")
+    private String myUrl;
+
     public PeerService(BlockchainService blockchainService) {
         this.blockchainService = blockchainService;
         this.restTemplate = new RestTemplate();
     }
+    // Flujo al arrancar:
+    // 1. Contactar seed por GET /status
+    // 2. Descargar cadena por GET /chain
+    // 3. Registrarse con POST /peers
+    // 4. Recibir lista de peers
 
-    public void registerPeer(String peerUrl) {
-        if (peerUrl == null || peerUrl.isBlank()) {
-            throw new IllegalArgumentException("URL de peer inválida");
+    @EventListener(ApplicationReadyEvent.class)
+    public void joinNetwork() {
+        if (seedPeersConfig == null || seedPeersConfig.isBlank()) return;
+        if (myUrl == null || myUrl.isBlank()) return;
+
+        String[] seeds = seedPeersConfig.split(",");
+        for (String seed : seeds) {
+            String seedUrl = normalizeUrl(seed.trim());
+
+            // Si soy el seed no me conecto a mi
+            if (myUrl.equals(seedUrl)) {
+                log.info("Soy un seed node, esperando conexiones...");
+                continue;
+            }
+
+            try {
+                // 1. Verificar que el seed esta vivo
+                restTemplate.getForObject(seedUrl + "/health", Map.class);
+
+                // 2. Cadena del seed
+                ChainDto chainDto = restTemplate.getForObject(seedUrl + "/chain", ChainDto.class);
+                if (chainDto != null) {
+                    List<Block> theirChain = chainDto.chain().stream()
+                            .map(BlockMapper::toModel).toList();
+                    blockchainService.replaceChainIfValid(theirChain);
+                }
+
+                // 3. Registrarse con el seed, devuelve la lista de peers conocidos
+                Map<String, Object> response = restTemplate.postForObject(
+                        seedUrl + "/peers",
+                        Map.of("url", myUrl),
+                        Map.class
+                );
+
+                // 4. Agregar los peers que devolvio el seed
+                if (response != null && response.get("peers") instanceof List<?> peerList) {
+                    peerList.forEach(p -> registerPeer(p.toString()));
+                }
+
+                registerPeer(seedUrl);
+                log.info("Conectado a la red via {}. Peers: {}", seedUrl, peers);
+
+            } catch (Exception e) {
+                log.warn("No se pudo conectar al seed {}: {}", seedUrl, e.getMessage());
+            }
         }
+    }
 
-        String normalized = normalizeUrl(peerUrl);
-
-        if (myUrl != null && !myUrl.isBlank() && normalized.equals(normalizeUrl(myUrl))) {
-            log.info("Se ignoró el auto-registro del nodo {}", normalized);
-            return;
-        }
-
+    public void registerPeer(String url) {
+        if (url == null || url.isBlank()) return;
+        String normalized = normalizeUrl(url);
+        if (myUrl != null && normalized.equals(normalizeUrl(myUrl))) return; // no autoregistrarse
         peers.add(normalized);
         log.info("Peer registrado: {}", normalized);
     }
@@ -57,7 +108,7 @@ public class PeerService {
         BlockDto dto = BlockMapper.toDto(block);
         for (String peer : peers) {
             try {
-                restTemplate.postForEntity(peer + "/api/block", dto, String.class);
+                restTemplate.postForEntity(peer + "/blocks", dto, Map.class);
                 log.info("Bloque #{} enviado a {}", block.getIndex(), peer);
             } catch (Exception e) {
                 log.warn("No se pudo enviar bloque a {}: {}", peer, e.getMessage());
@@ -65,12 +116,31 @@ public class PeerService {
         }
     }
 
-    // Sincronizacion. Al arrancar o cuando se necesite, pedimos la cadena a los peers
-    // y la reemplazamos si alguno tiene una mas larga y valida
+    public void broadcastTransaction(com.example.blockchain.dto.TransactionDto tx) {
+        for (String peer : peers) {
+            try {
+                restTemplate.postForEntity(peer + "/transactions", tx, Map.class);
+            } catch (Exception e) {
+                log.warn("No se pudo propagar tx a {}: {}", peer, e.getMessage());
+            }
+        }
+    }
+
+    public void broadcastNewPeer(String newPeerUrl) {
+        for (String peer : peers) {
+            try {
+                restTemplate.postForEntity(peer + "/peers", Map.of("url", newPeerUrl), Map.class);
+            } catch (Exception e) {
+                log.warn("No se pudo notificar nuevo peer a {}: {}", peer, e.getMessage());
+            }
+        }
+    }
+
+
     public void syncWithPeers() {
         for (String peer : peers) {
             try {
-                ChainDto response = restTemplate.getForObject(peer + "/api/chain", ChainDto.class);
+                ChainDto response = restTemplate.getForObject(peer + "/chain", ChainDto.class);
                 if (response == null) continue;
 
                 List<Block> theirChain = response.chain().stream()
@@ -79,7 +149,7 @@ public class PeerService {
 
                 boolean replaced = blockchainService.replaceChainIfValid(theirChain);
                 if (replaced) {
-                    log.info("Cadena sincronizada desde {}. Nueva longitud: {}", peer, theirChain.size());
+                    log.info("Cadena sincronizada desde {}. Longitud: {}", peer, theirChain.size());
                 }
             } catch (Exception e) {
                 log.warn("No se pudo sincronizar con {}: {}", peer, e.getMessage());
@@ -87,56 +157,9 @@ public class PeerService {
         }
     }
 
+    public String getMyUrl() { return myUrl; }
+
     private String normalizeUrl(String url) {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-    }
-
-    @Value("${blockchain.seed-url:}")
-    private String seedUrl;
-
-    @Value("${blockchain.my-url:}")
-    private String myUrl;
-
-    // Se ejecuta automáticamente cuando Spring termina de iniciar la app
-    @EventListener(ApplicationReadyEvent.class)
-    public void joinNetwork() {
-        if (seedUrl.isBlank() || myUrl.isBlank()) return;
-        // Si soy el seed no me conecto a nadie
-        if (myUrl.equals(seedUrl)) {
-            log.info("Soy el seed node, esperando conexiones...");
-            return;
-        }
-        try {
-            // Le aviso al seed que existo
-            Map<String, Object> response = restTemplate.postForObject(
-                    seedUrl + "/api/peers/join",
-                    Map.of("url", myUrl),
-                    Map.class
-            );
-            // Agrego los peers que me devolvió el seed
-            List<String> knownPeers = (List<String>) response.get("peers");
-            knownPeers.forEach(this::registerPeer);
-            // También agrego el seed como peer
-            registerPeer(seedUrl);
-            // Sincronizo la cadena
-            syncWithPeers();
-            log.info("Conectado a la red. Peers conocidos: {}", peers);
-        } catch (Exception e) {
-            log.warn("No se pudo conectar al seed {}: {}", seedUrl, e.getMessage());
-        }
-    }
-
-    public void broadcastNewPeer(String newPeerUrl) {
-        for (String peer : peers) {
-            try {
-                restTemplate.postForEntity(
-                        peer + "/api/peers",
-                        Map.of("url", newPeerUrl),
-                        String.class
-                );
-            } catch (Exception e) {
-                log.warn("No se pudo notificar a {}: {}", peer, e.getMessage());
-            }
-        }
     }
 }

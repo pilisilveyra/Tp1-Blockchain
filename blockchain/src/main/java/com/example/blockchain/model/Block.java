@@ -3,6 +3,7 @@ package com.example.blockchain.model;
 import com.example.blockchain.util.CryptoUtil;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class Block {
 
@@ -33,26 +34,36 @@ public class Block {
         this.nonce = nonce;
     }
 
-    private String calculateHash() {
-        String data = index + "|" + timestamp + "|" + transactionsData() + "|" + previousHash + "|" + nonce;
+    public String calculateHash() {
+        String txIds = transactions.stream()
+                .map(Transaction::getId)
+                .collect(Collectors.joining(","));
+        String data = index + "|" + timestamp + "|" + previousHash + "|" + nonce + "|" + txIds;
         return CryptoUtil.sha256(data);
     }
 
-    private String transactionsData() {
-        StringBuilder sb = new StringBuilder();
-        for (Transaction tx : transactions) {
-            sb.append(tx.dataForHash());
+    public boolean hasValidTransactions(long blockReward) {
+        if (index == 0) {
+            return transactions.isEmpty(); // genesis sin transacciones
         }
-        return sb.toString();
-    }
 
-    public boolean hasValidTransactions() {
-        for (Transaction tx : transactions) {
-            if (tx == null || !tx.isValid()) {
-                return false;
-            }
-        }
-        return true;
+        // exactamente una COINBASE y que sea la primera
+        long coinbaseCount = transactions.stream()
+                .filter(tx -> tx.getType() == Type.COINBASE)
+                .count();
+        if (coinbaseCount != 1) return false;
+        if (transactions.get(0).getType() != Type.COINBASE) return false;
+
+        // Validar la COINBASE
+        Transaction coinbase = transactions.get(0);
+        if (!"SYSTEM".equals(coinbase.getFrom())) return false;
+        if (coinbase.getAmount() != blockReward) return false;
+        if (coinbase.getTimestamp() != timestamp) return false;
+
+        // Validar todas las TRANSFER
+        return transactions.stream()
+                .filter(tx -> tx.getType() == Type.TRANSFER)
+                .allMatch(Transaction::isValid);
     }
 
      public void mineBlock(int difficulty) {
@@ -64,17 +75,17 @@ public class Block {
         }
     }
 
-    public boolean isValid(int difficulty) {
+    public boolean isValid(int difficulty, long blockReward) {
         if (index < 0) return false;
         if (timestamp <= 0) return false;
-        if (transactions == null) return false;
         if (previousHash == null || previousHash.isBlank()) return false;
         if (hash == null || hash.isBlank()) return false;
+        if (nonce < 0) return false;
 
         String target = "0".repeat(difficulty);
-        return hasValidTransactions()
-                && hash.equals(calculateHash())
-                && hash.startsWith(target);
+        return hash.equals(calculateHash())
+                && hash.startsWith(target)
+                && hasValidTransactions(blockReward);
     }
 
 

@@ -2,6 +2,7 @@ package com.example.blockchain.service;
 
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
+import com.example.blockchain.model.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,13 +19,31 @@ public class BlockchainService {
     private final List<Block> chain;
     private final List<Transaction> pendingTransactions;
     private final int difficulty;
+    private final long blockReward;
+    private final int autoMineThreshold;
+    private final WalletService walletService;
 
-    public BlockchainService(@Value("${blockchain.difficulty:3}") int difficulty) {
-        this.difficulty = difficulty;
-        this.chain = new ArrayList<>();
+    // PeerService se inyecta después para evitar dependencia circular
+    private PeerService peerService;
+
+    public BlockchainService(
+            @Value("${blockchain.difficulty:4}") int difficulty,
+            @Value("${blockchain.block-reward:10}") long blockReward,
+            @Value("${blockchain.auto-mine-threshold:3}") int autoMineThreshold,
+            WalletService walletService
+    ) {
+        this.difficulty        = difficulty;
+        this.blockReward       = blockReward;
+        this.autoMineThreshold = autoMineThreshold;
+        this.walletService     = walletService;
+        this.chain             = new ArrayList<>();
         this.pendingTransactions = new ArrayList<>();
         chain.add(createGenesis());
-        log.info("Blockchain inicializada con dificultad {} y bloque génesis {}", difficulty, getLatestBlock().getHash());
+        log.info("Blockchain inicializada. Dificultad: {}, génesis: {}", difficulty, getLatestBlock().getHash());
+    }
+
+    public void setPeerService(PeerService peerService) {
+        this.peerService = peerService;
     }
 
     private Block createGenesis() {
@@ -37,50 +56,60 @@ public class BlockchainService {
         if (tx == null || !tx.isValid()) {
             throw new IllegalArgumentException("Transacción inválida");
         }
+        if (tx.getType() == Type.COINBASE) {
+            throw new IllegalArgumentException("Las COINBASE no se agregan al mempool");
+        }
 
-        boolean alreadyPending = pendingTransactions.stream()
-                .anyMatch(existing -> existing.getId().equals(tx.getId()));
-
-        if (alreadyPending) {
+        boolean duplicate = pendingTransactions.stream()
+                .anyMatch(t -> t.getId().equals(tx.getId()));
+        if (duplicate) {
             throw new IllegalArgumentException("La transacción ya existe en el mempool");
         }
 
         if (transactionAlreadyInChain(tx)) {
-            throw new IllegalArgumentException("La transacción ya fue confirmada en un bloque");
+            throw new IllegalArgumentException("La transacción ya fue confirmada");
         }
 
         pendingTransactions.add(tx);
-        log.info("Transacción pendiente agregada. Total en mempool: {}", pendingTransactions.size());
-    }
+        log.info("Tx agregada al mempool. Total: {}", pendingTransactions.size());
 
-    private void removePendingTransactionsIncludedIn(Block block) {
-        List<String> minedTxIds = block.getTransactions().stream()
-                .map(Transaction::getId)
-                .toList();
-
-        pendingTransactions.removeIf(tx -> minedTxIds.contains(tx.getId()));
+        // Minado automatico al llegar al threshold
+        if (pendingTransactions.size() >= autoMineThreshold) {
+            log.info("Threshold alcanzado ({}). Minando automáticamente...", autoMineThreshold);
+            Block mined = mineBlockInternal("auto");
+            if (peerService != null) {
+                peerService.broadcastBlock(mined);
+            }
+        }
     }
 
     public List<Transaction> getPendingTransactions() {
         return List.copyOf(pendingTransactions);
     }
 
-
-    // Mina las transacciones pendientes, agrega al bloque a la chain y borra las transacciones pendientes
     public synchronized Block mineBlock() {
-        if (pendingTransactions.isEmpty()) {
-            throw new IllegalStateException("No hay transacciones pendientes para minar");
-        }
+        return mineBlockInternal("manual");
+    }
+
+    private synchronized Block mineBlockInternal(String trigger) {
+        long now = System.currentTimeMillis();
+
+        // Armar transacciones del bloque: primero COINBASE, luego las TRANSFER del mempool
+        List<Transaction> blockTxs = new ArrayList<>();
+        blockTxs.add(Transaction.createCoinbase(walletService.getAddress(), now, blockReward));
+        blockTxs.addAll(pendingTransactions);
+
         Block newBlock = new Block(
                 getLatestBlock().getIndex() + 1,
-                System.currentTimeMillis(),
-                new ArrayList<>(pendingTransactions),
+                now,
+                blockTxs,
                 getLatestBlock().getHash()
         );
-        log.info("Minando bloque #{}...", newBlock.getIndex());
+
+        log.info("Minando bloque #{} (trigger: {})...", newBlock.getIndex(), trigger);
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
-        removePendingTransactionsIncludedIn(newBlock);
+        removePendingIncludedIn(newBlock);
         log.info("Bloque #{} minado: {}", newBlock.getIndex(), newBlock.getHash());
         return newBlock;
     }
@@ -89,11 +118,11 @@ public class BlockchainService {
     public synchronized boolean receiveBlock(Block newBlock) {
         if (isValidNewBlock(newBlock, getLatestBlock())) {
             chain.add(newBlock);
-            removePendingTransactionsIncludedIn(newBlock);
+            removePendingIncludedIn(newBlock);
             log.info("Bloque #{} recibido y agregado: {}", newBlock.getIndex(), newBlock.getHash());
             return true;
         }
-        log.warn("Bloque #{} rechazado (inválido)", newBlock.getIndex());
+        log.warn("Bloque #{} rechazado", newBlock.getIndex());
         return false;
     }
 
@@ -122,8 +151,7 @@ public class BlockchainService {
         if (!previousBlock.getHash().equals(newBlock.getPreviousHash())) return false;
         if (newBlock.getTimestamp() <= previousBlock.getTimestamp()) return false;
         if (newBlock.getTimestamp() > System.currentTimeMillis() + 120_000) return false;
-        if (!newBlock.hasValidTransactions()) return false;
-        return newBlock.isValid(difficulty);
+        return newBlock.isValid(difficulty, blockReward);
     }
 
     public boolean isChainValid(List<Block> chain) {
@@ -142,6 +170,13 @@ public class BlockchainService {
                 && genesis.getPreviousHash().equals(expected.getPreviousHash())
                 && genesis.getHash().equals(expected.getHash())
                 && genesis.getNonce() == expected.getNonce();
+    }
+
+    private void removePendingIncludedIn(Block block) {
+        List<String> minedIds = block.getTransactions().stream()
+                .map(Transaction::getId)
+                .toList();
+        pendingTransactions.removeIf(tx -> minedIds.contains(tx.getId()));
     }
 
 

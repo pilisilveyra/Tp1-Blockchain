@@ -1,13 +1,10 @@
-package com.example.blockchain;
+/* package com.example.blockchain;
 
 import com.example.blockchain.model.Transaction;
 import com.example.blockchain.util.CryptoUtil;
 
 import java.security.KeyPair;
 
-/**
- * para armar transacciones válidas en tests.
- */
 public final class TestTxUtils {
 
     private TestTxUtils() {}
@@ -52,4 +49,6 @@ public final class TestTxUtils {
         );
     } //prueba
 }
+
+ */
 

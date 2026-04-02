@@ -15,9 +15,12 @@ public class BlockMapper {
   // Model -> Dto
   public static TransactionDto toDto(Transaction tx) {
       return new TransactionDto(
+              tx.getId(),
+              tx.getType().name(),
               tx.getFrom(),
               tx.getTo(),
               tx.getAmount(),
+              tx.getTimestamp(),
               tx.getPublicKey(),
               tx.getSignature()
       );
@@ -38,32 +41,34 @@ public class BlockMapper {
     }
 
     public static ChainDto toDto(List<Block> chain) {
-        List<BlockDto> blockDtos = chain.stream().map(BlockMapper::toDto).toList();
-        return new ChainDto(blockDtos, blockDtos.size());
+        return ChainDto.ok(chain.stream().map(BlockMapper::toDto).toList());
     }
 
     // Dto -> Model
     public static Transaction toModel(TransactionDto dto) {
         return new Transaction(
+                dto.id(),
+                dto.typeAsEnum(),
                 dto.from(),
                 dto.to(),
                 dto.amount(),
+                dto.timestamp(),
                 dto.publicKey(),
                 dto.signature()
         );
     }
-    public static Block toModel(BlockDto Dto) {
-        List<Transaction> txs = Dto.transactions().stream()
+
+    public static Block toModel(BlockDto dto) {
+        List<Transaction> txs = dto.transactions().stream()
                 .map(BlockMapper::toModel)
                 .toList();
-        // constructor que ya viene con hash y nonce calculados
         return new Block(
-                Dto.index(),
-                Dto.timestamp(),
+                dto.index(),
+                dto.timestamp(),
                 txs,
-                Dto.previousHash(),
-                Dto.hash(),
-                Dto.nonce()
+                dto.previousHash(),
+                dto.hash(),
+                dto.nonce()
         );
     }
 }
