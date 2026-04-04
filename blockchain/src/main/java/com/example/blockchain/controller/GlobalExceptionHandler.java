@@ -32,9 +32,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleIllegalState(
             IllegalStateException e
     ) {
+        String message = e.getMessage();
+        String code = "INVALID_REQUEST";
+        if (message != null) {
+            String normalized = message.toLowerCase();
+            if (normalized.contains("block")
+                    || normalized.contains("bloque")
+                    || normalized.contains("blockchain")
+                    || normalized.contains("chain")
+                    || normalized.contains("cadena")) {
+                code = "INVALID_BLOCK";
+            }
+        }
         ApiError error = new ApiError(
                 "error",
-                new ApiError.ErrorDetail("INVALID_STATE", e.getMessage())
+                new ApiError.ErrorDetail(code, message)
         );
         return ResponseEntity.badRequest().body(error);
     }
