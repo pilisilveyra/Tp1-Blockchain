@@ -1,7 +1,6 @@
 package com.example.blockchain.controller;
 
 import com.example.blockchain.dto.ApiError;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,38 +10,32 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiError> handleIllegalArgument( IllegalArgumentException e,
-                                                           HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException e) {
         ApiError error = new ApiError(
-                e.getMessage(),
-                System.currentTimeMillis(),
-                request.getRequestURI()
+                "error",
+                new ApiError.ErrorDetail("INVALID_REQUEST", e.getMessage())
         );
         return ResponseEntity.badRequest().body(error);
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiError> handleIllegalState(
-            IllegalStateException e,
-            HttpServletRequest request
+            IllegalStateException e
     ) {
         ApiError error = new ApiError(
-                e.getMessage(),
-                System.currentTimeMillis(),
-                request.getRequestURI()
+                "error",
+                new ApiError.ErrorDetail("INVALID_STATE", e.getMessage())
         );
         return ResponseEntity.badRequest().body(error);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneric(
-            Exception e,
-            HttpServletRequest request
+            Exception e
     ) {
         ApiError error = new ApiError(
-                "Error interno del servidor",
-                System.currentTimeMillis(),
-                request.getRequestURI()
+                "error",
+                new ApiError.ErrorDetail("INTERNAL_ERROR", "Error interno del servidor")
         );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
