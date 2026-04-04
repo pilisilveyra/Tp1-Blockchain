@@ -60,6 +60,10 @@ public class BlockchainService {
             throw new IllegalArgumentException("Las COINBASE no se agregan al mempool");
         }
 
+        if (!hasSufficientBalance(tx)) {
+            throw new IllegalArgumentException("Balance insuficiente");
+        }
+
         boolean duplicate = pendingTransactions.stream()
                 .anyMatch(t -> t.getId().equals(tx.getId()));
         if (duplicate) {
@@ -142,6 +146,44 @@ public class BlockchainService {
         return chain.stream()
                 .flatMap(block -> block.getTransactions().stream())
                 .anyMatch(existing -> existing.getId().equals(tx.getId()));
+    }
+
+    private boolean hasSufficientBalance(Transaction tx) {
+        if (tx.getType() != TransactionType.TRANSFER) {
+            return true;
+        }
+        long confirmedBalance = getConfirmedBalance(tx.getFrom());
+        long pendingOutgoing = getPendingOutgoingAmount(tx.getFrom());
+        long availableBalance = confirmedBalance - pendingOutgoing;
+        return availableBalance >= tx.getAmount();
+    }
+
+    //recorre toda la cadena y calcula el saldo confirmado
+    private long getConfirmedBalance(String address) {
+        long balance = 0;
+        for (Block block : chain) {
+            for (Transaction tx : block.getTransactions()) {
+                if (address.equalsIgnoreCase(tx.getTo())) {
+                    balance += tx.getAmount();
+                }
+                boolean isOutgoingTransfer =
+                    tx.getType() == TransactionType.TRANSFER &&
+                        address.equalsIgnoreCase(tx.getFrom());
+                if (isOutgoingTransfer) {
+                    balance -= tx.getAmount();
+                }
+            }
+        }
+        return balance;
+    }
+
+    //mira el mempool y suma cuanto ya tiene comprometido esa address en tx pendientes
+    private long getPendingOutgoingAmount(String address) {
+        return pendingTransactions.stream()
+            .filter(tx -> tx.getType() == TransactionType.TRANSFER)
+            .filter(tx -> address.equalsIgnoreCase(tx.getFrom()))
+            .mapToLong(Transaction::getAmount)
+            .sum();
     }
 
 
