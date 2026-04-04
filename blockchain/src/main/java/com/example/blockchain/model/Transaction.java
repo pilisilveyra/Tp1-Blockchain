@@ -7,7 +7,7 @@ import java.util.UUID;
 public class Transaction {
 
     private final String id;
-    private final Type type;
+    private final TransactionType type;
     private final String from;
     private final String to;
     private final long amount;  // entero, sin decimales
@@ -19,7 +19,7 @@ public class Transaction {
     public Transaction(String id, String from, String to, long amount,
                        long timestamp, String publicKey, String signature) {
         this.id        = id != null ? id : UUID.randomUUID().toString();
-        this.type      = Type.TRANSFER;
+        this.type      = TransactionType.TRANSFER;
         this.from      = from;
         this.to        = to;
         this.amount    = amount;
@@ -32,7 +32,7 @@ public class Transaction {
     public static Transaction createCoinbase(String minerAddress, long blockTimestamp, long blockReward) {
         return new Transaction(
                 UUID.randomUUID().toString(),
-                Type.COINBASE,
+                TransactionType.COINBASE,
                 "SYSTEM",
                 minerAddress,
                 blockReward,
@@ -43,7 +43,7 @@ public class Transaction {
     }
 
     // Constructor interno completo
-    public Transaction(String id, Type type, String from, String to, long amount,
+    public Transaction(String id, TransactionType type, String from, String to, long amount,
                        long timestamp, String publicKey, String signature) {
         this.id        = id;
         this.type      = type;
@@ -96,7 +96,7 @@ public class Transaction {
     }
 
     public String getId()        { return id; }
-    public Type getType()        { return type; }
+    public TransactionType getType()        { return type; }
     public String getFrom()      { return from; }
     public String getTo()        { return to; }
     public long getAmount()      { return amount; }

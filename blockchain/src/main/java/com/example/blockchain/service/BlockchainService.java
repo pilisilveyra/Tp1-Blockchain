@@ -2,7 +2,7 @@ package com.example.blockchain.service;
 
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
-import com.example.blockchain.model.Type;
+import com.example.blockchain.model.TransactionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,7 +56,7 @@ public class BlockchainService {
         if (tx == null || !tx.isValid()) {
             throw new IllegalArgumentException("Transacción inválida");
         }
-        if (tx.getType() == Type.COINBASE) {
+        if (tx.getType() == TransactionType.COINBASE) {
             throw new IllegalArgumentException("Las COINBASE no se agregan al mempool");
         }
 
