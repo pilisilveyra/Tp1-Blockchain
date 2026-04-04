@@ -1,95 +1,129 @@
 package com.example.blockchain.util;
 
+import org.web3j.crypto.ECKeyPair;
+import org.web3j.crypto.Keys;
+import org.web3j.crypto.Sign;
+import org.web3j.utils.Numeric;
+
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.security.spec.X509EncodedKeySpec;
+import java.security.MessageDigest;
 import java.util.Base64;
 
 public class CryptoUtil {
 
+    private static final int PUBLIC_KEY_HEX_LENGTH = 128;
+    private static final int SIGNATURE_PART_LENGTH = 32;
+    private static final int SIGNATURE_TOTAL_LENGTH = 65;
+    private static final int RECOVERY_ID_INDEX = 64;
+
+    private static final String ADDRESS_PREFIX = "0x";
+    private static final String HASH_ALGORITHM = "SHA-256";
+
     private CryptoUtil() {
     }
 
-    public static KeyPair generateKeyPair() {
-        try {
-            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
-            return keyPairGenerator.generateKeyPair();
-        } catch (Exception e) {
-            throw new RuntimeException("No se pudo generar el par de claves", e);
-        }
+    public static ECKeyPair keyPairFromPrivateKeyHex(String privateKeyHex) {
+        return ECKeyPair.create(parseHexToBigInteger(privateKeyHex));
     }
 
-    public static String publicKeyToBase64(PublicKey publicKey) {
-        return Base64.getEncoder().encodeToString(publicKey.getEncoded());
+    public static String publicKeyToHex(ECKeyPair keyPair) {
+        return Numeric.toHexStringNoPrefixZeroPadded(
+            keyPair.getPublicKey(),
+            PUBLIC_KEY_HEX_LENGTH
+        );
     }
 
-    public static PublicKey publicKeyFromBase64(String publicKeyBase64) {
-        try {
-            byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
-            KeyFactory keyFactory = KeyFactory.getInstance("Ed25519");
-            return keyFactory.generatePublic(new X509EncodedKeySpec(keyBytes));
-        } catch (Exception e) {
-            throw new RuntimeException("No se pudo reconstruir la public key", e);
-        }
+    public static String addressFromPublicKey(String publicKeyHex) {
+        BigInteger publicKey = parseHexToBigInteger(publicKeyHex);
+        return ADDRESS_PREFIX + Keys.getAddress(publicKey);
     }
 
-    // no implementamos para private key porque no es necesario para el funcionamiento de la blockchain,
-    // y así evitamos exponer código que manipule claves privadas
-
-    public static String sign(PrivateKey privateKey, String data) {
-        try {
-            Signature signature = Signature.getInstance("Ed25519");
-            signature.initSign(privateKey);
-            signature.update(data.getBytes(StandardCharsets.UTF_8));
-            byte[] signed = signature.sign();
-            return Base64.getEncoder().encodeToString(signed);
-        } catch (Exception e) {
-            throw new RuntimeException("No se pudo firmar", e);
-        }
+    public static String sign(ECKeyPair keyPair, String data) {
+        Sign.SignatureData signature = signMessage(keyPair, data);
+        byte[] encodedSignature = encodeSignature(signature);
+        return Base64.getEncoder().encodeToString(encodedSignature);
     }
 
-    public static boolean verifySignature(String publicKeyBase64, String data, String signatureBase64) {
+    public static boolean verifySignature(String publicKeyHex, String data, String signatureBase64) {
         try {
-            PublicKey publicKey = publicKeyFromBase64(publicKeyBase64);
+            byte[] encodedSignature = Base64.getDecoder().decode(signatureBase64);
+            if (!hasExpectedLength(encodedSignature)) {
+                return false;
+            }
 
-            Signature verifier = Signature.getInstance("Ed25519");
-            verifier.initVerify(publicKey);
-            verifier.update(data.getBytes(StandardCharsets.UTF_8)); //paso los datos firmados
+            Sign.SignatureData signature = decodeSignature(encodedSignature);
+            String recoveredAddress = recoverAddressFromSignature(data, signature);
+            String expectedAddress = addressFromPublicKey(publicKeyHex);
 
-            byte[] signatureBytes = Base64.getDecoder().decode(signatureBase64);
-            return verifier.verify(signatureBytes);
+            return recoveredAddress.equalsIgnoreCase(expectedAddress);
         } catch (Exception e) {
             return false;
         }
     }
 
-    public static String addressFromPublicKey(String publicKeyBase64) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(publicKeyBase64.getBytes(StandardCharsets.UTF_8));
-            return "0x" + bytesToHex(hash).substring(0, 40);
-        } catch (Exception e) {
-            throw new RuntimeException("No se pudo derivar la address", e);
-        }
-    }
-
     public static String sha256(String data) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(data.getBytes(StandardCharsets.UTF_8));
+            MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
+            byte[] hash = digest.digest(toUtf8Bytes(data));
             return bytesToHex(hash);
         } catch (Exception e) {
             throw new RuntimeException("No se pudo calcular SHA-256", e);
         }
     }
 
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
+    private static BigInteger parseHexToBigInteger(String hexValue) {
+        String cleanHex = Numeric.cleanHexPrefix(hexValue);
+        return new BigInteger(cleanHex, 16);
     }
 
+    private static Sign.SignatureData signMessage(ECKeyPair keyPair, String data) {
+        return Sign.signMessage(toUtf8Bytes(data), keyPair, false);
+    }
 
+    private static byte[] encodeSignature(Sign.SignatureData signature) {
+        byte[] encoded = new byte[SIGNATURE_TOTAL_LENGTH];
+        copy(signature.getR(), encoded, 0);
+        copy(signature.getS(), encoded, SIGNATURE_PART_LENGTH);
+        encoded[RECOVERY_ID_INDEX] = signature.getV()[0];
+        return encoded;
+    }
+
+    private static Sign.SignatureData decodeSignature(byte[] encodedSignature) {
+        byte[] r = extractSignaturePart(encodedSignature, 0);
+        byte[] s = extractSignaturePart(encodedSignature, SIGNATURE_PART_LENGTH);
+        byte v = encodedSignature[RECOVERY_ID_INDEX];
+        return new Sign.SignatureData(v, r, s);
+    }
+
+    private static byte[] extractSignaturePart(byte[] encodedSignature, int startIndex) {
+        byte[] part = new byte[SIGNATURE_PART_LENGTH];
+        System.arraycopy(encodedSignature, startIndex, part, 0, SIGNATURE_PART_LENGTH);
+        return part;
+    }
+
+    private static String recoverAddressFromSignature(String data, Sign.SignatureData signature) throws Exception {
+        BigInteger recoveredPublicKey = Sign.signedMessageToKey(toUtf8Bytes(data), signature);
+        return ADDRESS_PREFIX + Keys.getAddress(recoveredPublicKey);
+    }
+
+    private static boolean hasExpectedLength(byte[] encodedSignature) {
+        return encodedSignature.length == SIGNATURE_TOTAL_LENGTH;
+    }
+
+    private static byte[] toUtf8Bytes(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static void copy(byte[] source, byte[] target, int targetStartIndex) {
+        System.arraycopy(source, 0, target, targetStartIndex, source.length);
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder hex = new StringBuilder();
+        for (byte currentByte : bytes) {
+            hex.append(String.format("%02x", currentByte));
+        }
+        return hex.toString();
+    }
 }
