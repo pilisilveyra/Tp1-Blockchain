@@ -9,7 +9,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class BlockchainService {
@@ -196,13 +198,52 @@ public class BlockchainService {
         return newBlock.isValid(difficulty, blockReward);
     }
 
+    private boolean hasValidBalances(List<Block> candidateChain) {
+        Map<String, Long> balances = new HashMap<>();
+        for (int i = 1; i < candidateChain.size(); i++) {
+            Block block = candidateChain.get(i);
+            List<Transaction> transactions = block.getTransactions();
+            if (transactions.isEmpty()) {
+                return false;
+            }
+
+            Transaction coinbase = transactions.getFirst();
+            applyCoinbase(coinbase, balances);
+            for (int j = 1; j < transactions.size(); j++) {
+                Transaction tx = transactions.get(j);
+                if (!canApplyTransfer(tx, balances)) {
+                    return false;
+                }
+                applyTransfer(tx, balances);
+            }
+        } return true;
+    }
+
+    private void applyCoinbase(Transaction coinbase, Map<String, Long> balances) {
+        balances.merge(coinbase.getTo(), coinbase.getAmount(), Long::sum);
+    }
+
+    private boolean canApplyTransfer(Transaction tx, Map<String, Long> balances) {
+        long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
+        return senderBalance >= tx.getAmount();
+    }
+
+    private void applyTransfer(Transaction tx, Map<String, Long> balances) {
+        balances.merge(tx.getFrom(), -tx.getAmount(), Long::sum);
+        balances.merge(tx.getTo(), tx.getAmount(), Long::sum);
+    }
+
+
     public boolean isChainValid(List<Block> chain) {
         if (chain == null || chain.isEmpty()) return false;
         if (!isValidGenesis(chain.getFirst())) return false;
         for (int i = 1; i < chain.size(); i++) {
-            if (!isValidNewBlock(chain.get(i), chain.get(i - 1))) return false;
+            if (!isValidNewBlock(chain.get(i), chain.get(i - 1))) {
+                return false;
+            }
         }
-        return true;
+
+        return hasValidBalances(chain); //la cadena mas larga tmb tiene en cuenta el balance
     }
 
     private boolean isValidGenesis(Block genesis) {
