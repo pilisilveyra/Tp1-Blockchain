@@ -163,7 +163,7 @@ public class BlockchainService {
     }
 
     //recorre toda la cadena y calcula el saldo confirmado
-    private long getConfirmedBalance(String address) {
+    public long getConfirmedBalance(String address) {
         long balance = 0;
         for (Block block : chain) {
             for (Transaction tx : block.getTransactions()) {
@@ -321,5 +321,10 @@ public class BlockchainService {
     public List<Block> getChain() {
         return List.copyOf(chain);
     }
+
+    public long getAvailableBalance(String address) {
+        return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
+    }
+
 
 }

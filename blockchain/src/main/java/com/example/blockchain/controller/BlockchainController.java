@@ -135,6 +135,25 @@ public class BlockchainController {
      @GetMapping("/wallet")
      */
 
+    @GetMapping("/wallet")
+    public ResponseEntity<Map<String, Object>> getWallet() {
+        String address = walletService.getAddress();
+        String publicKey = walletService.getPublicKeyHex();
+
+        long confirmedBalance = blockchainService.getConfirmedBalance(address);
+        long availableBalance = blockchainService.getAvailableBalance(address);
+
+        return ResponseEntity.ok(Map.of(
+            "status", "ok",
+            "wallet", Map.of(
+                "address", address,
+                "publicKey", publicKey,
+                "confirmedBalance", confirmedBalance,
+                "availableBalance", availableBalance
+            )
+        ));
+    }
+
     @PostMapping("/wallet/send")
     public ResponseEntity<Map<String, Object>> sendTransaction(@RequestBody SendTransactionDto dto) {
         TransactionDto tx = BlockMapper.toSignedTransferDto(dto, walletService); //crea la transaction firmada
