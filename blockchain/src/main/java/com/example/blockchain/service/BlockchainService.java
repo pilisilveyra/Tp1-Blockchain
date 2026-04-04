@@ -2,14 +2,16 @@ package com.example.blockchain.service;
 
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
-import com.example.blockchain.model.Type;
+import com.example.blockchain.model.TransactionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class BlockchainService {
@@ -56,8 +58,12 @@ public class BlockchainService {
         if (tx == null || !tx.isValid()) {
             throw new IllegalArgumentException("Transacción inválida");
         }
-        if (tx.getType() == Type.COINBASE) {
+        if (tx.getType() == TransactionType.COINBASE) {
             throw new IllegalArgumentException("Las COINBASE no se agregan al mempool");
+        }
+
+        if (!hasSufficientBalance(tx)) {
+            throw new IllegalArgumentException("Balance insuficiente");
         }
 
         boolean duplicate = pendingTransactions.stream()
@@ -116,7 +122,10 @@ public class BlockchainService {
 
     // Recibe un bloque de otro nodo, lo valida y si es correcto lo agrega
     public synchronized boolean receiveBlock(Block newBlock) {
-        if (isValidNewBlock(newBlock, getLatestBlock())) {
+        boolean validStructure = isValidNewBlock(newBlock, getLatestBlock());
+        boolean validBalances = hasValidBalancesForNewBlock(newBlock);
+
+        if (validStructure && validBalances) {
             chain.add(newBlock);
             removePendingIncludedIn(newBlock);
             log.info("Bloque #{} recibido y agregado: {}", newBlock.getIndex(), newBlock.getHash());
@@ -125,7 +134,6 @@ public class BlockchainService {
         log.warn("Bloque #{} rechazado", newBlock.getIndex());
         return false;
     }
-
 
     // Reemplaza la cadena si la nueva es mas larga y es valida
     public synchronized boolean replaceChainIfValid(List<Block> newChain) {
@@ -144,6 +152,43 @@ public class BlockchainService {
                 .anyMatch(existing -> existing.getId().equals(tx.getId()));
     }
 
+    private boolean hasSufficientBalance(Transaction tx) {
+        if (tx.getType() != TransactionType.TRANSFER) {
+            return true;
+        }
+        long confirmedBalance = getConfirmedBalance(tx.getFrom());
+        long pendingOutgoing = getPendingOutgoingAmount(tx.getFrom());
+        long availableBalance = confirmedBalance - pendingOutgoing;
+        return availableBalance >= tx.getAmount();
+    }
+
+    //recorre toda la cadena y calcula el saldo confirmado
+    public long getConfirmedBalance(String address) {
+        long balance = 0;
+        for (Block block : chain) {
+            for (Transaction tx : block.getTransactions()) {
+                if (address.equalsIgnoreCase(tx.getTo())) {
+                    balance += tx.getAmount();
+                }
+                boolean isOutgoingTransfer =
+                    tx.getType() == TransactionType.TRANSFER &&
+                        address.equalsIgnoreCase(tx.getFrom());
+                if (isOutgoingTransfer) {
+                    balance -= tx.getAmount();
+                }
+            }
+        }
+        return balance;
+    }
+
+    //mira el mempool y suma cuanto ya tiene comprometido esa address en tx pendientes
+    private long getPendingOutgoingAmount(String address) {
+        return pendingTransactions.stream()
+            .filter(tx -> tx.getType() == TransactionType.TRANSFER)
+            .filter(tx -> address.equalsIgnoreCase(tx.getFrom()))
+            .mapToLong(Transaction::getAmount)
+            .sum();
+    }
 
     public boolean isValidNewBlock(Block newBlock, Block previousBlock) {
         if (newBlock == null || previousBlock == null) return false;
@@ -154,13 +199,102 @@ public class BlockchainService {
         return newBlock.isValid(difficulty, blockReward);
     }
 
+    private boolean applyBlockTransactions(Block block, Map<String, Long> balances) {
+        List<Transaction> transactions = block.getTransactions();
+        if (transactions.isEmpty()) {
+            return false;
+        }
+        Transaction coinbase = transactions.getFirst();
+        if (!isValidCoinbaseForBlock(coinbase)) {
+            return false;
+        }
+        if (hasExtraCoinbase(transactions)) {
+            return false;
+        }
+        applyCoinbase(coinbase, balances);
+        for (int i = 1; i < transactions.size(); i++) {
+            Transaction tx = transactions.get(i);
+            if (tx.getType() != TransactionType.TRANSFER) {
+                return false;
+            }
+
+            if (!canApplyTransfer(tx, balances)) {
+                return false;
+            }
+            applyTransfer(tx, balances);
+        }
+        return true;
+    }
+
+    private boolean isValidCoinbaseForBlock(Transaction coinbase) {
+        return coinbase.getType() == TransactionType.COINBASE //q la primera tx sea coinbase
+            && coinbase.getAmount() == blockReward;
+    }
+
+    //Chequea que no haya una segunda coinbase en el mismo bloque
+    private boolean hasExtraCoinbase(List<Transaction> transactions) {
+        return transactions.stream()
+            .skip(1)
+            .anyMatch(tx -> tx.getType() == TransactionType.COINBASE);
+    }
+
+    private boolean hasValidBalances(List<Block> candidateChain) {
+        Map<String, Long> balances = new HashMap<>();
+
+        for (int i = 1; i < candidateChain.size(); i++) {
+            Block block = candidateChain.get(i);
+
+            if (!applyBlockTransactions(block, balances)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasValidBalancesForNewBlock(Block newBlock) {
+        Map<String, Long> balances = buildConfirmedBalances(chain);
+
+        return applyBlockTransactions(newBlock, balances);
+    }
+
+    private Map<String, Long> buildConfirmedBalances(List<Block> confirmedChain) {
+        Map<String, Long> balances = new HashMap<>();
+
+        for (int i = 1; i < confirmedChain.size(); i++) { //salteamos génesis
+            Block block = confirmedChain.get(i);
+
+            if (!applyBlockTransactions(block, balances)) {
+                // esto no debería pasar si la cadena ya es válida
+                throw new IllegalStateException("Cadena confirmada inválida");
+            }
+        }
+        return balances;
+    }
+
+    private void applyCoinbase(Transaction coinbase, Map<String, Long> balances) {
+        balances.merge(coinbase.getTo(), coinbase.getAmount(), Long::sum);
+    }
+
+    private boolean canApplyTransfer(Transaction tx, Map<String, Long> balances) {
+        long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
+        return senderBalance >= tx.getAmount();
+    }
+
+    private void applyTransfer(Transaction tx, Map<String, Long> balances) {
+        balances.merge(tx.getFrom(), -tx.getAmount(), Long::sum);
+        balances.merge(tx.getTo(), tx.getAmount(), Long::sum);
+    }
+
     public boolean isChainValid(List<Block> chain) {
         if (chain == null || chain.isEmpty()) return false;
         if (!isValidGenesis(chain.getFirst())) return false;
         for (int i = 1; i < chain.size(); i++) {
-            if (!isValidNewBlock(chain.get(i), chain.get(i - 1))) return false;
+            if (!isValidNewBlock(chain.get(i), chain.get(i - 1))) {
+                return false;
+            }
         }
-        return true;
+
+        return hasValidBalances(chain); //la cadena mas larga tmb tiene en cuenta el balance
     }
 
     private boolean isValidGenesis(Block genesis) {
@@ -187,5 +321,10 @@ public class BlockchainService {
     public List<Block> getChain() {
         return List.copyOf(chain);
     }
+
+    public long getAvailableBalance(String address) {
+        return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
+    }
+
 
 }

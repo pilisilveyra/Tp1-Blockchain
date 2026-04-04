@@ -1,6 +1,6 @@
 package com.example.blockchain.dto;
 
-import com.example.blockchain.model.Type;
+import com.example.blockchain.model.TransactionType;
 
 public record TransactionDto(
         String id,
@@ -12,7 +12,7 @@ public record TransactionDto(
         String publicKey,
         String signature
 ) {
-    public Type typeAsEnum() {
-        return Type.valueOf(type.toUpperCase());
+    public TransactionType typeAsEnum() {
+        return TransactionType.valueOf(type.toUpperCase());
     }
 }

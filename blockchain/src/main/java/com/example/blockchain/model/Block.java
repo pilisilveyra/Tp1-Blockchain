@@ -49,10 +49,10 @@ public class Block {
 
         // exactamente una COINBASE y que sea la primera
         long coinbaseCount = transactions.stream()
-                .filter(tx -> tx.getType() == Type.COINBASE)
+                .filter(tx -> tx.getType() == TransactionType.COINBASE)
                 .count();
         if (coinbaseCount != 1) return false;
-        if (transactions.get(0).getType() != Type.COINBASE) return false;
+        if (transactions.get(0).getType() != TransactionType.COINBASE) return false;
 
         // Validar la COINBASE
         Transaction coinbase = transactions.get(0);
@@ -62,7 +62,7 @@ public class Block {
 
         // Validar todas las TRANSFER
         return transactions.stream()
-                .filter(tx -> tx.getType() == Type.TRANSFER)
+                .filter(tx -> tx.getType() == TransactionType.TRANSFER)
                 .allMatch(Transaction::isValid);
     }
 
