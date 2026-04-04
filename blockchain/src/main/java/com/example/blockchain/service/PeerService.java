@@ -3,6 +3,7 @@ package com.example.blockchain.service;
 import com.example.blockchain.dto.BlockDto;
 import com.example.blockchain.BlockMapper;
 import com.example.blockchain.dto.ChainDto;
+import com.example.blockchain.dto.StatusDto;
 import com.example.blockchain.model.Block;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,20 +48,21 @@ public class PeerService {
     public void joinNetwork() {
         if (seedPeersConfig == null || seedPeersConfig.isBlank()) return;
         if (myUrl == null || myUrl.isBlank()) return;
+        String normalizedMyUrl = normalizeUrl(myUrl);
 
         String[] seeds = seedPeersConfig.split(",");
         for (String seed : seeds) {
             String seedUrl = normalizeUrl(seed.trim());
 
             // Si soy el seed no me conecto a mi
-            if (myUrl.equals(seedUrl)) {
+            if (normalizedMyUrl.equals(seedUrl)) {
                 log.info("Soy un seed node, esperando conexiones...");
                 continue;
             }
 
             try {
                 // 1. Verificar que el seed esta vivo
-                restTemplate.getForObject(seedUrl + "/health", Map.class);
+                StatusDto status = restTemplate.getForObject(seedUrl + "/status", StatusDto.class);
 
                 // 2. Cadena del seed
                 ChainDto chainDto = restTemplate.getForObject(seedUrl + "/chain", ChainDto.class);
@@ -73,7 +75,7 @@ public class PeerService {
                 // 3. Registrarse con el seed, devuelve la lista de peers conocidos
                 Map<String, Object> response = restTemplate.postForObject(
                         seedUrl + "/peers",
-                        Map.of("url", myUrl),
+                        Map.of("url", normalizedMyUrl),
                         Map.class
                 );
 
