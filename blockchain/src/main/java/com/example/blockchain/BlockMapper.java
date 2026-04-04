@@ -2,9 +2,12 @@ package com.example.blockchain;
 
 import com.example.blockchain.dto.BlockDto;
 import com.example.blockchain.dto.ChainDto;
+import com.example.blockchain.dto.SendTransactionDto;
 import com.example.blockchain.dto.TransactionDto;
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
+import com.example.blockchain.model.TransactionType;
+import com.example.blockchain.service.WalletService;
 
 import java.util.List;
 
@@ -71,4 +74,22 @@ public class BlockMapper {
                 dto.nonce()
         );
     }
+
+  public static TransactionDto toSignedTransferDto(SendTransactionDto sendDto, WalletService walletService) {
+    long timestamp = System.currentTimeMillis();
+    String from = walletService.getAddress();
+    String publicKey = walletService.getPublicKeyHex();
+    String signature = walletService.signTransfer(sendDto.to(), sendDto.amount(), timestamp); //firma usando privkey
+
+    return new TransactionDto(
+        java.util.UUID.randomUUID().toString(),
+        TransactionType.TRANSFER.name(),
+        from,
+        sendDto.to(),
+        sendDto.amount(),
+        timestamp,
+        publicKey,
+        signature
+    );
+  }
 }

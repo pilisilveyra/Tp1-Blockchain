@@ -9,6 +9,7 @@ import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
 import com.example.blockchain.service.BlockchainService;
 import com.example.blockchain.service.PeerService;
+import com.example.blockchain.service.WalletService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,11 +20,13 @@ public class BlockchainController {
 
     private final BlockchainService blockchainService;
     private final PeerService peerService;
+    private final WalletService walletService;
     // agregar walletservice
 
-    public BlockchainController(BlockchainService blockchainService, PeerService peerService) {
+    public BlockchainController(BlockchainService blockchainService, PeerService peerService, WalletService walletService) {
         this.blockchainService = blockchainService;
         this.peerService = peerService;
+        this.walletService = walletService;
     }
     @GetMapping("/health")
     public Map<String, String> health() {
