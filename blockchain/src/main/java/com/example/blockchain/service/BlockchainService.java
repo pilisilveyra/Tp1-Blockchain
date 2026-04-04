@@ -122,7 +122,10 @@ public class BlockchainService {
 
     // Recibe un bloque de otro nodo, lo valida y si es correcto lo agrega
     public synchronized boolean receiveBlock(Block newBlock) {
-        if (isValidNewBlock(newBlock, getLatestBlock())) {
+        boolean validStructure = isValidNewBlock(newBlock, getLatestBlock());
+        boolean validBalances = hasValidBalancesForNewBlock(newBlock);
+
+        if (validStructure && validBalances) {
             chain.add(newBlock);
             removePendingIncludedIn(newBlock);
             log.info("Bloque #{} recibido y agregado: {}", newBlock.getIndex(), newBlock.getHash());
@@ -131,7 +134,6 @@ public class BlockchainService {
         log.warn("Bloque #{} rechazado", newBlock.getIndex());
         return false;
     }
-
 
     // Reemplaza la cadena si la nueva es mas larga y es valida
     public synchronized boolean replaceChainIfValid(List<Block> newChain) {
@@ -188,7 +190,6 @@ public class BlockchainService {
             .sum();
     }
 
-
     public boolean isValidNewBlock(Block newBlock, Block previousBlock) {
         if (newBlock == null || previousBlock == null) return false;
         if (previousBlock.getIndex() + 1 != newBlock.getIndex()) return false;
@@ -198,25 +199,55 @@ public class BlockchainService {
         return newBlock.isValid(difficulty, blockReward);
     }
 
-    private boolean hasValidBalances(List<Block> candidateChain) {
-        Map<String, Long> balances = new HashMap<>();
-        for (int i = 1; i < candidateChain.size(); i++) {
-            Block block = candidateChain.get(i);
-            List<Transaction> transactions = block.getTransactions();
-            if (transactions.isEmpty()) {
+    private boolean applyBlockTransactions(Block block, Map<String, Long> balances) {
+        List<Transaction> transactions = block.getTransactions();
+
+        if (transactions.isEmpty()) {
+            return false;
+        }
+        Transaction coinbase = transactions.getFirst();
+        applyCoinbase(coinbase, balances);
+        for (int i = 1; i < transactions.size(); i++) {
+            Transaction tx = transactions.get(i);
+            if (!canApplyTransfer(tx, balances)) {
                 return false;
             }
+            applyTransfer(tx, balances);
+        }
+        return true;
+    }
 
-            Transaction coinbase = transactions.getFirst();
-            applyCoinbase(coinbase, balances);
-            for (int j = 1; j < transactions.size(); j++) {
-                Transaction tx = transactions.get(j);
-                if (!canApplyTransfer(tx, balances)) {
-                    return false;
-                }
-                applyTransfer(tx, balances);
+    private boolean hasValidBalances(List<Block> candidateChain) {
+        Map<String, Long> balances = new HashMap<>();
+
+        for (int i = 1; i < candidateChain.size(); i++) {
+            Block block = candidateChain.get(i);
+
+            if (!applyBlockTransactions(block, balances)) {
+                return false;
             }
-        } return true;
+        }
+        return true;
+    }
+
+    private boolean hasValidBalancesForNewBlock(Block newBlock) {
+        Map<String, Long> balances = buildConfirmedBalances(chain);
+
+        return applyBlockTransactions(newBlock, balances);
+    }
+
+    private Map<String, Long> buildConfirmedBalances(List<Block> confirmedChain) {
+        Map<String, Long> balances = new HashMap<>();
+
+        for (int i = 1; i < confirmedChain.size(); i++) { //salteamos génesis
+            Block block = confirmedChain.get(i);
+
+            if (!applyBlockTransactions(block, balances)) {
+                // esto no debería pasar si la cadena ya es válida
+                throw new IllegalStateException("Cadena confirmada inválida");
+            }
+        }
+        return balances;
     }
 
     private void applyCoinbase(Transaction coinbase, Map<String, Long> balances) {
@@ -232,7 +263,6 @@ public class BlockchainService {
         balances.merge(tx.getFrom(), -tx.getAmount(), Long::sum);
         balances.merge(tx.getTo(), tx.getAmount(), Long::sum);
     }
-
 
     public boolean isChainValid(List<Block> chain) {
         if (chain == null || chain.isEmpty()) return false;
