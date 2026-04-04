@@ -1,10 +1,7 @@
 package com.example.blockchain.controller;
 
 import com.example.blockchain.BlockMapper;
-import com.example.blockchain.dto.BlockDto;
-import com.example.blockchain.dto.ChainDto;
-import com.example.blockchain.dto.StatusDto;
-import com.example.blockchain.dto.TransactionDto;
+import com.example.blockchain.dto.*;
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
 import com.example.blockchain.service.BlockchainService;
@@ -137,4 +134,19 @@ public class BlockchainController {
      @PostMapping("/wallet/send")
      @GetMapping("/wallet")
      */
+
+    @PostMapping("/wallet/send")
+    public ResponseEntity<Map<String, Object>> sendTransaction(@RequestBody SendTransactionDto dto) {
+        TransactionDto tx = BlockMapper.toSignedTransferDto(dto, walletService); //crea la transaction firmada
+        Transaction model = BlockMapper.toModel(tx);
+
+        blockchainService.addPendingTransaction(model);
+        peerService.broadcastTransaction(tx);
+
+        return ResponseEntity.status(202).body(Map.of(
+            "status", "ok",
+            "accepted", true,
+            "txId", tx.id()
+        ));
+    }
 }
