@@ -201,20 +201,41 @@ public class BlockchainService {
 
     private boolean applyBlockTransactions(Block block, Map<String, Long> balances) {
         List<Transaction> transactions = block.getTransactions();
-
         if (transactions.isEmpty()) {
             return false;
         }
         Transaction coinbase = transactions.getFirst();
+        if (!isValidCoinbaseForBlock(coinbase)) {
+            return false;
+        }
+        if (hasExtraCoinbase(transactions)) {
+            return false;
+        }
         applyCoinbase(coinbase, balances);
         for (int i = 1; i < transactions.size(); i++) {
             Transaction tx = transactions.get(i);
+            if (tx.getType() != TransactionType.TRANSFER) {
+                return false;
+            }
+
             if (!canApplyTransfer(tx, balances)) {
                 return false;
             }
             applyTransfer(tx, balances);
         }
         return true;
+    }
+
+    private boolean isValidCoinbaseForBlock(Transaction coinbase) {
+        return coinbase.getType() == TransactionType.COINBASE //q la primera tx sea coinbase
+            && coinbase.getAmount() == blockReward;
+    }
+
+    //Chequea que no haya una segunda coinbase en el mismo bloque
+    private boolean hasExtraCoinbase(List<Transaction> transactions) {
+        return transactions.stream()
+            .skip(1)
+            .anyMatch(tx -> tx.getType() == TransactionType.COINBASE);
     }
 
     private boolean hasValidBalances(List<Block> candidateChain) {
