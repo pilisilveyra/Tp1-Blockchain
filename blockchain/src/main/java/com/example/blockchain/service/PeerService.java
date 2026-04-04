@@ -93,12 +93,15 @@ public class PeerService {
         }
     }
 
-    public void registerPeer(String url) {
-        if (url == null || url.isBlank()) return;
+    public boolean registerPeer(String url) {
+        if (url == null || url.isBlank()) return false;
         String normalized = normalizeUrl(url);
-        if (myUrl != null && normalized.equals(normalizeUrl(myUrl))) return; // no autoregistrarse
-        peers.add(normalized);
-        log.info("Peer registrado: {}", normalized);
+        if (myUrl != null && normalized.equals(normalizeUrl(myUrl))) return false; // no autoregistrarse
+        boolean added = peers.add(normalized);
+        if (added) {
+            log.info("Peer registrado: {}", normalized);
+        }
+        return added;
     }
 
     public Set<String> getPeers() {

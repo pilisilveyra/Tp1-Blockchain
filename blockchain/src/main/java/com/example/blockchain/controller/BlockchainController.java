@@ -105,8 +105,10 @@ public class BlockchainController {
         if (url == null || url.isBlank()) {
             throw new IllegalArgumentException("Falta el campo 'url'");
         }
-        peerService.registerPeer(url);
-        peerService.broadcastNewPeer(url);
+        boolean added = peerService.registerPeer(url);
+        if (added) {
+            peerService.broadcastNewPeer(url);
+        }
         var peerList = peerService.getPeers().stream().toList();
         return ResponseEntity.ok(Map.of(
                 "status", "ok",
