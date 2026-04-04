@@ -30,7 +30,6 @@ public class BlockchainController {
         return Map.of("status", "ok");
     }
 
-    /*  cuando este el wallet service se va a poder
     @GetMapping("/status")
     public StatusDto status() {
         Block latest = blockchainService.getLatestBlock();
@@ -41,7 +40,6 @@ public class BlockchainController {
                 new StatusDto.PeersInfo(peerService.getPeers().size())
         );
     }
-     */
 
     // Devuelve la cadena completa
     @GetMapping("/chain")
@@ -51,8 +49,8 @@ public class BlockchainController {
 
     @PostMapping("/transactions")
     public ResponseEntity<Map<String, Object>> addTransaction(@RequestBody TransactionDto dto) {
-        if ("COINBASE".equalsIgnoreCase(dto.type())) {
-            throw new IllegalArgumentException("Las COINBASE no se aceptan por este endpoint");
+        if (!"TRANSFER".equalsIgnoreCase(dto.type())) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Tipo inválido");
         }
         Transaction tx = BlockMapper.toModel(dto);
         blockchainService.addPendingTransaction(tx);
@@ -89,7 +87,7 @@ public class BlockchainController {
         Block block = BlockMapper.toModel(dto);
         boolean added = blockchainService.receiveBlock(block);
         if (!added) {
-            throw new IllegalArgumentException("Bloque inválido o ya conocido");
+            throw new IllegalArgumentException("INVALID_BLOCK: Bloque inválido o ya conocido");
         }
         return ResponseEntity.ok(Map.of(
                 "status", "ok",
@@ -103,7 +101,7 @@ public class BlockchainController {
     public ResponseEntity<Map<String, Object>> registerPeer(@RequestBody Map<String, String> body) {
         String url = body.get("url");
         if (url == null || url.isBlank()) {
-            throw new IllegalArgumentException("Falta el campo 'url'");
+            throw new IllegalArgumentException("INVALID_REQUEST: Falta el campo url");
         }
         boolean added = peerService.registerPeer(url);
         if (added) {

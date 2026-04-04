@@ -56,24 +56,24 @@ public class BlockchainService {
 
     public synchronized void addPendingTransaction(Transaction tx) {
         if (tx == null || !tx.isValid()) {
-            throw new IllegalArgumentException("Transacción inválida");
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
         if (tx.getType() == TransactionType.COINBASE) {
-            throw new IllegalArgumentException("Las COINBASE no se agregan al mempool");
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
 
         if (!hasSufficientBalance(tx)) {
-            throw new IllegalArgumentException("Balance insuficiente");
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Balance insuficiente");
         }
 
         boolean duplicate = pendingTransactions.stream()
                 .anyMatch(t -> t.getId().equals(tx.getId()));
         if (duplicate) {
-            throw new IllegalArgumentException("La transacción ya existe en el mempool");
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
         }
 
         if (transactionAlreadyInChain(tx)) {
-            throw new IllegalArgumentException("La transacción ya fue confirmada");
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción ya confirmada");
         }
 
         pendingTransactions.add(tx);

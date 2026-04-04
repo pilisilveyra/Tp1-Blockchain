@@ -11,10 +11,20 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException e) {
+        String message = e.getMessage();
+        String code = "INVALID_REQUEST";
+
+        if (message != null && message.contains(":")) {
+            String[] parts = message.split(":", 2);
+            code = parts[0];
+            message = parts[1].trim();
+        }
+
         ApiError error = new ApiError(
                 "error",
-                new ApiError.ErrorDetail("INVALID_REQUEST", e.getMessage())
+                new ApiError.ErrorDetail(code, message)
         );
+
         return ResponseEntity.badRequest().body(error);
     }
 
