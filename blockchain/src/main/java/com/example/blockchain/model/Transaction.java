@@ -85,10 +85,16 @@ public class Transaction {
 
     private boolean isValidCoinbase() {
         return id != null && !id.isBlank()
-                && "SYSTEM".equals(from)
-                && to != null && !to.isBlank()
-                && amount > 0
-                && timestamp > 0;
+            && "SYSTEM".equals(from)
+            && to != null && !to.isBlank()
+            && amount > 0
+            && timestamp > 0
+            && isZeroValue(publicKey)
+            && isZeroValue(signature);
+    }
+
+    private boolean isZeroValue(String value) {
+        return value != null && value.chars().allMatch(c -> c == '0');
     }
 
     public String canonicalPayload() {
