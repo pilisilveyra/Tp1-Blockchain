@@ -34,16 +34,18 @@ public class CryptoUtil {
         );
     }
 
+    public static String sign(ECKeyPair keyPair, String data) {
+        byte[] messageHash = sha256Bytes(data);
+        Sign.SignatureData signature = Sign.signMessage(messageHash, keyPair, false);
+        byte[] encodedSignature = encodeSignature(signature);
+        return Base64.getEncoder().encodeToString(encodedSignature);
+    }
+
     public static String addressFromPublicKey(String publicKeyHex) {
         BigInteger publicKey = parseHexToBigInteger(publicKeyHex);
         return ADDRESS_PREFIX + Keys.getAddress(publicKey);
     }
 
-    public static String sign(ECKeyPair keyPair, String data) {
-        Sign.SignatureData signature = signMessage(keyPair, data);
-        byte[] encodedSignature = encodeSignature(signature);
-        return Base64.getEncoder().encodeToString(encodedSignature);
-    }
 
     public static boolean verifySignature(String publicKeyHex, String data, String signatureBase64) {
         try {
@@ -52,13 +54,25 @@ public class CryptoUtil {
                 return false;
             }
 
+            byte[] messageHash = sha256Bytes(data);
             Sign.SignatureData signature = decodeSignature(encodedSignature);
-            String recoveredAddress = recoverAddressFromSignature(data, signature);
+
+            BigInteger recoveredPublicKey = Sign.signedMessageHashToKey(messageHash, signature);
+            String recoveredAddress = ADDRESS_PREFIX + Keys.getAddress(recoveredPublicKey);
             String expectedAddress = addressFromPublicKey(publicKeyHex);
 
             return recoveredAddress.equalsIgnoreCase(expectedAddress);
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private static byte[] sha256Bytes(String data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
+            return digest.digest(toUtf8Bytes(data));
+        } catch (Exception e) {
+            throw new RuntimeException("No se pudo calcular SHA-256", e);
         }
     }
 
@@ -77,9 +91,6 @@ public class CryptoUtil {
         return new BigInteger(cleanHex, 16);
     }
 
-    private static Sign.SignatureData signMessage(ECKeyPair keyPair, String data) {
-        return Sign.signMessage(toUtf8Bytes(data), keyPair, false);
-    }
 
     private static byte[] encodeSignature(Sign.SignatureData signature) {
         byte[] encoded = new byte[SIGNATURE_TOTAL_LENGTH];
@@ -102,10 +113,6 @@ public class CryptoUtil {
         return part;
     }
 
-    private static String recoverAddressFromSignature(String data, Sign.SignatureData signature) throws Exception {
-        BigInteger recoveredPublicKey = Sign.signedMessageToKey(toUtf8Bytes(data), signature);
-        return ADDRESS_PREFIX + Keys.getAddress(recoveredPublicKey);
-    }
 
     private static boolean hasExpectedLength(byte[] encodedSignature) {
         return encodedSignature.length == SIGNATURE_TOTAL_LENGTH;
