@@ -76,13 +76,14 @@ public class BlockchainController {
         if (dto.signature() == null || dto.signature().isBlank()) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: signature requerida");
         }
+
         Transaction tx = BlockMapper.toModel(dto);
         blockchainService.addPendingTransaction(tx);
-        peerService.broadcastTransaction(dto);
+
         return ResponseEntity.status(202).body(Map.of(
-                "status", "ok",
-                "accepted", true,
-                "txId", tx.getId()
+            "status", "ok",
+            "accepted", true,
+            "txId", tx.getId()
         ));
     }
 
@@ -180,16 +181,24 @@ public class BlockchainController {
 
     @PostMapping("/wallet/send")
     public ResponseEntity<Map<String, Object>> sendTransaction(@RequestBody SendTransactionDto dto) {
-        TransactionDto tx = BlockMapper.toSignedTransferDto(dto, walletService); //crea la transaction firmada
-        Transaction model = BlockMapper.toModel(tx);
+        try {
+            TransactionDto tx = BlockMapper.toSignedTransferDto(dto, walletService);
 
-        blockchainService.addPendingTransaction(model);
-        peerService.broadcastTransaction(tx);
+            Transaction model = BlockMapper.toModel(tx);
 
-        return ResponseEntity.status(202).body(Map.of(
-            "status", "ok",
-            "accepted", true,
-            "txId", tx.id()
-        ));
-    }
-}
+            blockchainService.addPendingTransaction(model);
+            System.out.println("Agregada al mempool OK");
+
+            peerService.broadcastTransaction(tx);
+            System.out.println("Broadcast OK");
+
+            return ResponseEntity.status(202).body(Map.of(
+                "status", "ok",
+                "accepted", true,
+                "txId", tx.id()
+            ));
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
+    }}

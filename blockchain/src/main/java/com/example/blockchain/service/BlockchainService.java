@@ -62,7 +62,10 @@ public class BlockchainService {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
 
-        if (pendingTransactions.contains(tx)) {
+        boolean duplicatedInMempool = pendingTransactions.stream()
+            .anyMatch(existing -> existing.getId().equals(tx.getId()));
+
+        if (duplicatedInMempool) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
         }
 
@@ -99,16 +102,34 @@ public class BlockchainService {
     private synchronized Block mineBlockInternal(String trigger) {
         long now = System.currentTimeMillis();
 
-        // Armar transacciones del bloque: primero COINBASE, luego las TRANSFER del mempool
+        String minerAddress = walletService.getAddress();
+        log.info("=== mineBlockInternal trigger={} minerAddress={} ===", trigger, minerAddress);
+
         List<Transaction> blockTxs = new ArrayList<>();
-        blockTxs.add(Transaction.createCoinbase(walletService.getAddress(), now, blockReward));
+
+        Transaction coinbase = Transaction.createCoinbase(minerAddress, now, blockReward);
+        log.info("Coinbase creada -> to={} amount={}", coinbase.getTo(), coinbase.getAmount());
+
+        blockTxs.add(coinbase);
         blockTxs.addAll(pendingTransactions);
 
+        log.info("Transacciones que van al bloque:");
+        for (Transaction tx : blockTxs) {
+            log.info(
+                "  TX id={} type={} from={} to={} amount={}",
+                tx.getId(),
+                tx.getType(),
+                tx.getFrom(),
+                tx.getTo(),
+                tx.getAmount()
+            );
+        }
+
         Block newBlock = new Block(
-                getLatestBlock().getIndex() + 1,
-                now,
-                blockTxs,
-                getLatestBlock().getHash()
+            getLatestBlock().getIndex() + 1,
+            now,
+            blockTxs,
+            getLatestBlock().getHash()
         );
 
         log.info("Minando bloque #{} (trigger: {})...", newBlock.getIndex(), trigger);
@@ -164,19 +185,39 @@ public class BlockchainService {
     //recorre toda la cadena y calcula el saldo confirmado
     public long getConfirmedBalance(String address) {
         long balance = 0;
+
+        log.info("=== Calculando confirmedBalance para {} ===", address);
+
         for (Block block : chain) {
+            log.info("Bloque #{} hash={}", block.getIndex(), block.getHash());
+
             for (Transaction tx : block.getTransactions()) {
+                log.info(
+                    "  TX id={} type={} from={} to={} amount={}",
+                    tx.getId(),
+                    tx.getType(),
+                    tx.getFrom(),
+                    tx.getTo(),
+                    tx.getAmount()
+                );
+
                 if (address.equalsIgnoreCase(tx.getTo())) {
                     balance += tx.getAmount();
+                    log.info("    +{} -> balance={}", tx.getAmount(), balance);
                 }
+
                 boolean isOutgoingTransfer =
                     tx.getType() == TransactionType.TRANSFER &&
                         address.equalsIgnoreCase(tx.getFrom());
+
                 if (isOutgoingTransfer) {
                     balance -= tx.getAmount();
+                    log.info("    -{} -> balance={}", tx.getAmount(), balance);
                 }
             }
         }
+
+        log.info("=== Balance final para {} = {} ===", address, balance);
         return balance;
     }
 
