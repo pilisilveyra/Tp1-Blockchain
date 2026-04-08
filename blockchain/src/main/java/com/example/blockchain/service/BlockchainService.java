@@ -62,7 +62,7 @@ public class BlockchainService {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
 
-        if (pendingTransactions.contains(tx)) {
+        if (transactionAlreadyInMempool(tx)) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
         }
 
@@ -323,6 +323,11 @@ public class BlockchainService {
 
     public long getAvailableBalance(String address) {
         return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
+    }
+
+    private boolean transactionAlreadyInMempool(Transaction tx) {
+        return pendingTransactions.stream()
+                .anyMatch(existing -> existing.getId().equals(tx.getId()));
     }
 
 

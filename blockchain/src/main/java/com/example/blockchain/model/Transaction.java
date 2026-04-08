@@ -93,6 +93,18 @@ public class Transaction {
             && isZeroValue(signature);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Transaction that)) return false;
+        return id != null && id.equals(that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 0;
+    }
+
     private boolean isZeroValue(String value) {
         return value != null && value.chars().allMatch(c -> c == '0');
     }

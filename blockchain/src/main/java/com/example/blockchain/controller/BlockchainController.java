@@ -78,7 +78,6 @@ public class BlockchainController {
         }
         Transaction tx = BlockMapper.toModel(dto);
         blockchainService.addPendingTransaction(tx);
-        peerService.broadcastTransaction(dto);
         return ResponseEntity.status(202).body(Map.of(
                 "status", "ok",
                 "accepted", true,
@@ -184,7 +183,6 @@ public class BlockchainController {
         Transaction model = BlockMapper.toModel(tx);
 
         blockchainService.addPendingTransaction(model);
-        peerService.broadcastTransaction(tx);
 
         return ResponseEntity.status(202).body(Map.of(
             "status", "ok",

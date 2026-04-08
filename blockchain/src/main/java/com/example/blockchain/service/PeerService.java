@@ -121,15 +121,6 @@ public class PeerService {
         }
     }
 
-    public void broadcastTransaction(com.example.blockchain.dto.TransactionDto tx) {
-        for (String peer : peers) {
-            try {
-                restTemplate.postForEntity(peer + "/transactions", tx, Map.class);
-            } catch (Exception e) {
-                log.warn("No se pudo propagar tx a {}: {}", peer, e.getMessage());
-            }
-        }
-    }
 
     public void broadcastNewPeer(String newPeerUrl) {
         for (String peer : peers) {
