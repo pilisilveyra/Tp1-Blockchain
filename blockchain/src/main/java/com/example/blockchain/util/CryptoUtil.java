@@ -1,6 +1,7 @@
 package com.example.blockchain.util;
 
 import org.web3j.crypto.ECKeyPair;
+import org.web3j.crypto.Hash;
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
 import org.web3j.utils.Numeric;
@@ -35,10 +36,12 @@ public class CryptoUtil {
     }
 
     public static String sign(ECKeyPair keyPair, String data) {
-        Sign.SignatureData signature = Sign.signMessage(toUtf8Bytes(data), keyPair, false);
+        byte[] messageHash = Hash.sha3(toUtf8Bytes(data));
+        Sign.SignatureData signature = Sign.signMessage(messageHash, keyPair, false);
         byte[] encodedSignature = encodeSignature(signature);
         return Base64.getEncoder().encodeToString(encodedSignature);
     }
+
 
     public static String addressFromPublicKey(String publicKeyHex) {
         BigInteger publicKey = parseHexToBigInteger(publicKeyHex);
@@ -54,9 +57,10 @@ public class CryptoUtil {
             }
 
             Sign.SignatureData signature = decodeSignature(encodedSignature);
+            byte[] messageHash = Hash.sha3(toUtf8Bytes(data));
 
             BigInteger recoveredPublicKey =
-                    Sign.signedMessageToKey(toUtf8Bytes(data), signature);
+                    Sign.signedMessageHashToKey(messageHash, signature);
 
             String recoveredAddress = ADDRESS_PREFIX + Keys.getAddress(recoveredPublicKey);
             String expectedAddress = addressFromPublicKey(publicKeyHex);

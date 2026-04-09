@@ -130,11 +130,6 @@ public class BlockchainController {
                 "chainLength", blockchainService.getChain().size()
         ));
     }
-    /*
-    faltan:
-     @PostMapping("/wallet/send")
-     @GetMapping("/wallet")
-     */
 
     @GetMapping("/wallet")
     public ResponseEntity<Map<String, Object>> getWallet() {
