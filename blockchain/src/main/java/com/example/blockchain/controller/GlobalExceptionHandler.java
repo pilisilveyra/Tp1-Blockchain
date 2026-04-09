@@ -16,7 +16,7 @@ public class GlobalExceptionHandler {
 
         if (message != null && message.contains(":")) {
             String[] parts = message.split(":", 2);
-            code = parts[0];
+            code = parts[0].trim();
             message = parts[1].trim();
         }
 
@@ -52,15 +52,27 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleGeneric(
-            Exception e
-    ) {
+    public ResponseEntity<ApiError> handleGeneric(Exception e) {
+        e.printStackTrace();
+
         ApiError error = new ApiError(
                 "error",
-                new ApiError.ErrorDetail("INTERNAL_ERROR", "Error interno del servidor")
+                new ApiError.ErrorDetail("INTERNAL_ERROR", e.getMessage())
         );
+
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ApiError> handleRuntime(RuntimeException e) {
+        e.printStackTrace();
+
+        ApiError error = new ApiError(
+                "error",
+                new ApiError.ErrorDetail("RUNTIME_ERROR", e.getMessage())
+        );
+
+        return ResponseEntity.badRequest().body(error);
+    }
 
 }
