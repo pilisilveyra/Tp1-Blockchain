@@ -89,7 +89,6 @@ public class BlockchainController {
         if (!added) {
             throw new IllegalArgumentException("INVALID_BLOCK: Bloque inválido o ya conocido");
         }
-        peerService.broadcastBlock(block);
         return ResponseEntity.ok(Map.of(
                 "status", "ok",
                 "accepted", true,
