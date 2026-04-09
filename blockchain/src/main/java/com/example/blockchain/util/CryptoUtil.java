@@ -35,8 +35,7 @@ public class CryptoUtil {
     }
 
     public static String sign(ECKeyPair keyPair, String data) {
-        byte[] messageHash = sha256Bytes(data);
-        Sign.SignatureData signature = Sign.signMessage(messageHash, keyPair, false);
+        Sign.SignatureData signature = Sign.signMessage(toUtf8Bytes(data), keyPair, false);
         byte[] encodedSignature = encodeSignature(signature);
         return Base64.getEncoder().encodeToString(encodedSignature);
     }
@@ -54,25 +53,17 @@ public class CryptoUtil {
                 return false;
             }
 
-            byte[] messageHash = sha256Bytes(data);
             Sign.SignatureData signature = decodeSignature(encodedSignature);
 
-            BigInteger recoveredPublicKey = Sign.signedMessageHashToKey(messageHash, signature);
+            BigInteger recoveredPublicKey =
+                    Sign.signedMessageToKey(toUtf8Bytes(data), signature);
+
             String recoveredAddress = ADDRESS_PREFIX + Keys.getAddress(recoveredPublicKey);
             String expectedAddress = addressFromPublicKey(publicKeyHex);
 
             return recoveredAddress.equalsIgnoreCase(expectedAddress);
         } catch (Exception e) {
             return false;
-        }
-    }
-
-    private static byte[] sha256Bytes(String data) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
-            return digest.digest(toUtf8Bytes(data));
-        } catch (Exception e) {
-            throw new RuntimeException("No se pudo calcular SHA-256", e);
         }
     }
 

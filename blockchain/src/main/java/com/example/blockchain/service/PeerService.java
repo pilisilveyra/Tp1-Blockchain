@@ -37,6 +37,7 @@ public class PeerService {
     public PeerService(BlockchainService blockchainService) {
         this.blockchainService = blockchainService;
         this.restTemplate = new RestTemplate();
+        this.blockchainService.setPeerService(this);
     }
     // Flujo al arrancar:
     // 1. Contactar seed por GET /status

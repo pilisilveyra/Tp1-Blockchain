@@ -83,9 +83,16 @@ public class Block {
         if (nonce < 0) return false;
 
         String target = "0".repeat(difficulty);
-        return hash.equals(calculateHash())
-                && hash.startsWith(target)
-                && hasValidTransactions(blockReward);
+
+        if (!hash.equals(calculateHash())) return false;
+        if (!hash.startsWith(target)) return false;
+
+        // validacion del bloque genesis
+
+        if (index == 0) {
+            return "0".equals(previousHash) && transactions.isEmpty();
+        }
+        return hasValidTransactions(blockReward);
     }
 
 

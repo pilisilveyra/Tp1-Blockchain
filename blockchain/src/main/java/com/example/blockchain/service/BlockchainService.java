@@ -3,6 +3,7 @@ package com.example.blockchain.service;
 import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
 import com.example.blockchain.model.TransactionType;
+import com.example.blockchain.util.GenesisParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,7 +50,12 @@ public class BlockchainService {
     }
 
     private Block createGenesis() {
-        Block genesis = new Block(0, 1700000000L, new ArrayList<>(), "0");
+        Block genesis = new Block(
+                0,
+                GenesisParams.GENESIS_TIMESTAMP,
+                List.of(),
+                GenesisParams.GENESIS_PREVIOUS_HASH
+        );
         genesis.mineBlock(difficulty);
         return genesis;
     }
@@ -110,8 +116,9 @@ public class BlockchainService {
         Transaction coinbase = Transaction.createCoinbase(minerAddress, now, blockReward);
         log.info("Coinbase creada -> to={} amount={}", coinbase.getTo(), coinbase.getAmount());
 
+        List<Transaction> validPending = selectValidPendingTransactionsForNextBlock();
         blockTxs.add(coinbase);
-        blockTxs.addAll(pendingTransactions);
+        blockTxs.addAll(validPending);
 
         log.info("Transacciones que van al bloque:");
         for (Transaction tx : blockTxs) {
@@ -134,6 +141,9 @@ public class BlockchainService {
 
         log.info("Minando bloque #{} (trigger: {})...", newBlock.getIndex(), trigger);
         newBlock.mineBlock(difficulty);
+        if (!isValidNewBlock(newBlock, getLatestBlock()) || !hasValidBalancesForNewBlock(newBlock)) {
+            throw new IllegalStateException("INVALID_BLOCK: Bloque minado localmente inválido");
+        }
         chain.add(newBlock);
         removePendingIncludedIn(newBlock);
         log.info("Bloque #{} minado: {}", newBlock.getIndex(), newBlock.getHash());
@@ -160,10 +170,26 @@ public class BlockchainService {
         if (newChain.size() > chain.size() && isChainValid(newChain)) {
             chain.clear();
             chain.addAll(newChain);
+            reconcilePendingTransactions();
             log.info("Cadena reemplazada. Nueva longitud: {}", chain.size());
             return true;
         }
         return false;
+    }
+
+    private void reconcilePendingTransactions() {
+        List<Transaction> snapshot = new ArrayList<>(pendingTransactions);
+        pendingTransactions.clear();
+
+        for (Transaction tx : snapshot) {
+            if (transactionAlreadyInChain(tx)) continue;
+            if (!tx.isValid()) continue;
+
+            long balance = getAvailableBalance(tx.getFrom());
+            if (balance >= tx.getAmount()) {
+                pendingTransactions.add(tx);
+            }
+        }
     }
 
     private boolean transactionAlreadyInChain(Transaction tx) {
@@ -343,7 +369,8 @@ public class BlockchainService {
                 && genesis.getTimestamp() == expected.getTimestamp()
                 && genesis.getPreviousHash().equals(expected.getPreviousHash())
                 && genesis.getHash().equals(expected.getHash())
-                && genesis.getNonce() == expected.getNonce();
+                && genesis.getNonce() == expected.getNonce()
+                && genesis.getTransactions().isEmpty();
     }
 
     private void removePendingIncludedIn(Block block) {
@@ -364,6 +391,23 @@ public class BlockchainService {
 
     public long getAvailableBalance(String address) {
         return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
+    }
+
+    private List<Transaction> selectValidPendingTransactionsForNextBlock() {
+        Map<String, Long> balances = buildConfirmedBalances(chain);
+        List<Transaction> selected = new ArrayList<>();
+
+        for (Transaction tx : pendingTransactions) {
+            if (tx.getType() != TransactionType.TRANSFER) continue;
+            if (!tx.isValid()) continue;
+
+            long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
+            if (senderBalance >= tx.getAmount()) {
+                selected.add(tx);
+                applyTransfer(tx, balances);
+            }
+        }
+        return selected;
     }
 
 

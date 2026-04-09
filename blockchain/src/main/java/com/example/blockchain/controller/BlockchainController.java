@@ -114,6 +114,7 @@ public class BlockchainController {
         if (!added) {
             throw new IllegalArgumentException("INVALID_BLOCK: Bloque inválido o ya conocido");
         }
+        peerService.broadcastBlock(block);
         return ResponseEntity.ok(Map.of(
                 "status", "ok",
                 "accepted", true,
@@ -188,9 +189,6 @@ public class BlockchainController {
 
             blockchainService.addPendingTransaction(model);
             System.out.println("Agregada al mempool OK");
-
-            peerService.broadcastTransaction(tx);
-            System.out.println("Broadcast OK");
 
             return ResponseEntity.status(202).body(Map.of(
                 "status", "ok",

@@ -62,6 +62,16 @@ public class Transaction {
         };
     }
 
+    private boolean isUuidV4(String value) {
+        try {
+            UUID uuid = UUID.fromString(value);
+            return uuid.version() == 4;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+
     private boolean isValidTransfer() {
         if (id == null || id.isBlank()) return false;
         if (from == null || from.isBlank()) return false;
@@ -71,6 +81,7 @@ public class Transaction {
         if (timestamp <= 0) return false;
         if (publicKey == null || publicKey.isBlank()) return false;
         if (signature == null || signature.isBlank()) return false;
+        if (!isUuidV4(id)) return false;
 
         // La address del from debe coincidir con la derivada de la publicKey
         try {
@@ -84,6 +95,7 @@ public class Transaction {
     }
 
     private boolean isValidCoinbase() {
+        if (!isUuidV4(id)) return false;
         return id != null && !id.isBlank()
             && "SYSTEM".equals(from)
             && to != null && !to.isBlank()
