@@ -1,7 +1,5 @@
 package com.example.blockchain.model;
 
-import com.example.blockchain.util.CryptoUtil;
-
 import java.util.UUID;
 
 public class Transaction {

@@ -20,6 +20,7 @@ import java.util.Map;
 public class BlockchainService {
 
     private static final Logger log = LoggerFactory.getLogger(BlockchainService.class);
+    private static final long MAX_FUTURE_BLOCK_DRIFT_MS = 120_000L;
 
     private final List<Block> chain;
     private final List<Transaction> pendingTransactions;
@@ -65,34 +66,21 @@ public class BlockchainService {
     }
 
     public synchronized void addPendingTransaction(Transaction tx) {
-        if (tx == null || !tx.isTransfer()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
-        }
-        if (!transactionValidator.isValidTransfer(tx)) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
-        }
-        if (pendingTransactions.stream().anyMatch(existing -> existing.getId().equals(tx.getId()))) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
-        }
-        if (transactionAlreadyInChain(tx)) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción ya confirmada");
-        }
-        if (getAvailableBalance(tx.getFrom()) < tx.getAmount()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Balance insuficiente");
-        }
+        validateIncomingPendingTransaction(tx);
         pendingTransactions.add(tx);
-
         log.info("Tx agregada al mempool. Total: {}", pendingTransactions.size());
 
-        // Minado automatico al llegar al threshold
-        if (pendingTransactions.size() >= autoMineThreshold) {
-            log.info("Threshold alcanzado ({}). Minando automáticamente...", autoMineThreshold);
-            Block mined = mineBlockInternal("auto");
-            if (peerService != null) {
-                peerService.broadcastBlock(mined);
-            }
-        }
+        tryAutoMine();
     }
+
+    private void validateIncomingPendingTransaction(Transaction tx) {
+        ensureTransferTransaction(tx);
+        ensureValidTransfer(tx);
+        ensureNotDuplicatedInMempool(tx);
+        ensureNotAlreadyConfirmed(tx);
+        ensureSufficientAvailableBalance(tx);
+    }
+
 
     public List<Transaction> getPendingTransactions() {
         return List.copyOf(pendingTransactions);
@@ -102,90 +90,136 @@ public class BlockchainService {
         return mineBlockInternal("manual");
     }
 
-    private synchronized Block mineBlockInternal(String trigger) {
-        long now = System.currentTimeMillis();
-
-        String minerAddress = walletService.getAddress();
-        log.info("=== mineBlockInternal trigger={} minerAddress={} ===", trigger, minerAddress);
-
-        List<Transaction> blockTxs = new ArrayList<>();
-
-        Transaction coinbase = Transaction.createCoinbase(minerAddress, now, blockReward);
-        log.info("Coinbase creada -> to={} amount={}", coinbase.getTo(), coinbase.getAmount());
-
-        List<Transaction> validPending = selectValidPendingTransactionsForNextBlock();
-        blockTxs.add(coinbase);
-        blockTxs.addAll(validPending);
-
-        log.info("Transacciones que van al bloque:");
-        for (Transaction tx : blockTxs) {
-            log.info(
-                "  TX id={} type={} from={} to={} amount={}",
-                tx.getId(),
-                tx.getType(),
-                tx.getFrom(),
-                tx.getTo(),
-                tx.getAmount()
-            );
-        }
-
-        Block newBlock = new Block(
-            getLatestBlock().getIndex() + 1,
-            now,
-            blockTxs,
-            getLatestBlock().getHash()
-        );
-
-        log.info("Minando bloque #{} (trigger: {})...", newBlock.getIndex(), trigger);
-        newBlock.mineBlock(difficulty);
-        if (!isValidNewBlock(newBlock, getLatestBlock()) || !hasValidBalancesForNewBlock(newBlock)) {
-            throw new IllegalStateException("INVALID_BLOCK: Bloque minado localmente inválido");
-        }
-        chain.add(newBlock);
-        removePendingIncludedIn(newBlock);
-        log.info("Bloque #{} minado: {}", newBlock.getIndex(), newBlock.getHash());
-        return newBlock;
-    }
-
     // Recibe un bloque de otro nodo, lo valida y si es correcto lo agrega
     public synchronized boolean receiveBlock(Block newBlock) {
-        boolean validStructure = isValidNewBlock(newBlock, getLatestBlock());
-        boolean validBalances = hasValidBalancesForNewBlock(newBlock);
-
-        if (validStructure && validBalances) {
-            chain.add(newBlock);
-            removePendingIncludedIn(newBlock);
-            log.info("Bloque #{} recibido y agregado: {}", newBlock.getIndex(), newBlock.getHash());
-            return true;
+        if (!isStructurallyValidNextBlock(newBlock)) {
+            log.warn("Bloque #{} rechazado por estructura", safeBlockIndex(newBlock));
+            return false;
         }
-        log.warn("Bloque #{} rechazado", newBlock.getIndex());
-        return false;
+
+        if (!isEconomicallyValidNextBlock(newBlock)) {
+            log.warn("Bloque #{} rechazado por balances", safeBlockIndex(newBlock));
+            return false;
+        }
+
+        appendBlockToLocalChain(newBlock);
+        return true;
+    }
+
+    private void appendBlockToLocalChain(Block block) {
+        chain.add(block);
+        removePendingIncludedIn(block);
+        log.info("Bloque #{} agregado: {}", block.getIndex(), block.getHash());
+    }
+
+    private boolean isStructurallyValidNextBlock(Block newBlock) {
+        return isValidNewBlock(newBlock, getLatestBlock());
+    }
+
+    private boolean isEconomicallyValidNextBlock(Block newBlock) {
+        return hasValidBalancesForNewBlock(newBlock);
     }
 
     // Reemplaza la cadena si la nueva es mas larga y es valida
     public synchronized boolean replaceChainIfValid(List<Block> newChain) {
-        if (newChain.size() > chain.size() && isChainValid(newChain)) {
-            chain.clear();
-            chain.addAll(newChain);
-            reconcilePendingTransactions();
-            log.info("Cadena reemplazada. Nueva longitud: {}", chain.size());
-            return true;
+        if (!isLongerThanCurrentChain(newChain)) {
+            return false;
         }
-        return false;
+        if (!isChainValid(newChain)) {
+            return false;
+        }
+        chain.clear();
+        chain.addAll(newChain);
+        reconcilePendingTransactions();
+
+        log.info("Cadena reemplazada. Nueva longitud: {}", chain.size());
+        return true;
     }
+
+    private synchronized Block mineBlockInternal(String trigger) {
+        long blockTimestamp = System.currentTimeMillis();
+        String minerAddress = walletService.getAddress();
+        logMiningStart(trigger, minerAddress);
+
+        List<Transaction> blockTransactions = buildNextBlockTransactions(minerAddress, blockTimestamp);
+        Block candidateBlock = buildCandidateBlock(blockTimestamp, blockTransactions);
+        mineAndValidateLocally(candidateBlock);
+        appendBlockToLocalChain(candidateBlock);
+        return candidateBlock;
+    }
+
+    private void logMiningStart(String trigger, String minerAddress) {
+        log.info("=== mineBlockInternal trigger={} minerAddress={} ===", trigger, minerAddress);
+    }
+
+    private List<Transaction> buildNextBlockTransactions(String minerAddress, long blockTimestamp) {
+        Transaction coinbase = Transaction.createCoinbase(minerAddress, blockTimestamp, blockReward);
+        List<Transaction> selectedPending = selectValidPendingTransactionsForNextBlock();
+
+        List<Transaction> blockTransactions = new ArrayList<>();
+        blockTransactions.add(coinbase);
+        blockTransactions.addAll(selectedPending);
+
+        log.info("Coinbase creada -> to={} amount={}", coinbase.getTo(), coinbase.getAmount());
+        logBlockTransactions(blockTransactions);
+
+        return blockTransactions;
+    }
+
+    private void logBlockTransactions(List<Transaction> transactions) {
+        log.info("Transacciones que van al bloque:");
+        for (Transaction tx : transactions) {
+            log.info(
+                    "  TX id={} type={} from={} to={} amount={}",
+                    tx.getId(),
+                    tx.getType(),
+                    tx.getFrom(),
+                    tx.getTo(),
+                    tx.getAmount()
+            );
+        }
+    }
+
+    private Block buildCandidateBlock(long blockTimestamp, List<Transaction> blockTransactions) {
+        return new Block(
+                getLatestBlock().getIndex() + 1,
+                blockTimestamp,
+                blockTransactions,
+                getLatestBlock().getHash()
+        );
+    }
+
+    private void mineAndValidateLocally(Block block) {
+        log.info("Minando bloque #{}...", block.getIndex());
+        block.mineBlock(difficulty);
+
+        if (!isStructurallyValidNextBlock(block) || !isEconomicallyValidNextBlock(block)) {
+            throw new IllegalStateException("INVALID_BLOCK: Bloque minado localmente inválido");
+        }
+    }
+
 
     private void reconcilePendingTransactions() {
         List<Transaction> snapshot = new ArrayList<>(pendingTransactions);
         pendingTransactions.clear();
 
         for (Transaction tx : snapshot) {
-            if (transactionAlreadyInChain(tx)) continue;
-            if (!transactionValidator.isValidTransfer(tx)) continue;
-
-            if (getAvailableBalance(tx.getFrom()) >= tx.getAmount()) {
+            if (shouldKeepInMempool(tx)) {
                 pendingTransactions.add(tx);
             }
         }
+    }
+
+    private boolean shouldKeepInMempool(Transaction tx) {
+        if (transactionAlreadyInChain(tx)) {
+            return false;
+        }
+
+        if (!transactionValidator.isValidTransfer(tx)) {
+            return false;
+        }
+
+        return getAvailableBalance(tx.getFrom()) >= tx.getAmount();
     }
 
     private boolean transactionAlreadyInChain(Transaction tx) {
@@ -195,87 +229,82 @@ public class BlockchainService {
     }
 
 
-    //recorre toda la cadena y calcula el saldo confirmado
     public long getConfirmedBalance(String address) {
-        long balance = 0;
-
-        log.info("=== Calculando confirmedBalance para {} ===", address);
-
-        for (Block block : chain) {
-            log.info("Bloque #{} hash={}", block.getIndex(), block.getHash());
-
-            for (Transaction tx : block.getTransactions()) {
-                log.info(
-                    "  TX id={} type={} from={} to={} amount={}",
-                    tx.getId(),
-                    tx.getType(),
-                    tx.getFrom(),
-                    tx.getTo(),
-                    tx.getAmount()
-                );
-
-                if (address.equalsIgnoreCase(tx.getTo())) {
-                    balance += tx.getAmount();
-                    log.info("    +{} -> balance={}", tx.getAmount(), balance);
-                }
-
-                boolean isOutgoingTransfer =
-                    tx.getType() == TransactionType.TRANSFER &&
-                        address.equalsIgnoreCase(tx.getFrom());
-
-                if (isOutgoingTransfer) {
-                    balance -= tx.getAmount();
-                    log.info("    -{} -> balance={}", tx.getAmount(), balance);
-                }
-            }
-        }
-
-        log.info("=== Balance final para {} = {} ===", address, balance);
-        return balance;
+        return buildConfirmedBalances(chain).getOrDefault(address, 0L);
     }
+
+    public long getAvailableBalance(String address) {
+        return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
+    }
+
 
     //mira el mempool y suma cuanto ya tiene comprometido esa address en tx pendientes
     private long getPendingOutgoingAmount(String address) {
         return pendingTransactions.stream()
-            .filter(tx -> tx.getType() == TransactionType.TRANSFER)
-            .filter(tx -> address.equalsIgnoreCase(tx.getFrom()))
-            .mapToLong(Transaction::getAmount)
-            .sum();
+                .filter(Transaction::isTransfer)
+                .filter(tx -> address.equalsIgnoreCase(tx.getFrom()))
+                .mapToLong(Transaction::getAmount)
+                .sum();
     }
 
     public boolean isValidNewBlock(Block newBlock, Block previousBlock) {
-        if (newBlock == null || previousBlock == null) return false;
-        if (previousBlock.getIndex() + 1 != newBlock.getIndex()) return false;
-        if (!previousBlock.getHash().equals(newBlock.getPreviousHash())) return false;
-        if (newBlock.getTimestamp() <= previousBlock.getTimestamp()) return false;
-        if (newBlock.getTimestamp() > System.currentTimeMillis() + 120_000) return false;
-        return blockValidator.isValidBlockStructure(newBlock, difficulty, blockReward);
+        return hasValidBlockLink(newBlock, previousBlock)
+                && hasValidBlockTimestamp(newBlock, previousBlock)
+                && blockValidator.isValidBlockStructure(newBlock, difficulty, blockReward);
+    }
+
+    private boolean hasValidBlockLink(Block newBlock, Block previousBlock) {
+        if (newBlock == null || previousBlock == null) {
+            return false;
+        }
+
+        return previousBlock.getIndex() + 1 == newBlock.getIndex()
+                && previousBlock.getHash().equals(newBlock.getPreviousHash());
+    }
+
+    private boolean hasValidBlockTimestamp(Block newBlock, Block previousBlock) {
+        long now = System.currentTimeMillis();
+
+        return newBlock.getTimestamp() > previousBlock.getTimestamp()
+                && newBlock.getTimestamp() <= now + MAX_FUTURE_BLOCK_DRIFT_MS;
     }
 
     private boolean applyBlockTransactions(Block block, Map<String, Long> balances) {
         List<Transaction> transactions = block.getTransactions();
+
         if (transactions.isEmpty()) {
             return false;
         }
+
         Transaction coinbase = transactions.getFirst();
         if (!isValidCoinbaseForBlock(coinbase)) {
             return false;
         }
+
         if (hasExtraCoinbase(transactions)) {
             return false;
         }
+
         applyCoinbase(coinbase, balances);
+
         for (int i = 1; i < transactions.size(); i++) {
             Transaction tx = transactions.get(i);
-            if (tx.getType() != TransactionType.TRANSFER) {
+
+            if (!tx.isTransfer()) {
+                return false;
+            }
+
+            if (!transactionValidator.isValidTransfer(tx)) {
                 return false;
             }
 
             if (!canApplyTransfer(tx, balances)) {
                 return false;
             }
+
             applyTransfer(tx, balances);
         }
+
         return true;
     }
 
@@ -292,35 +321,30 @@ public class BlockchainService {
     }
 
     private boolean hasValidBalances(List<Block> candidateChain) {
-        Map<String, Long> balances = new HashMap<>();
-
-        for (int i = 1; i < candidateChain.size(); i++) {
-            Block block = candidateChain.get(i);
-
-            if (!applyBlockTransactions(block, balances)) {
-                return false;
-            }
+        try {
+            buildConfirmedBalances(candidateChain);
+            return true;
+        } catch (IllegalStateException e) {
+            return false;
         }
-        return true;
     }
 
     private boolean hasValidBalancesForNewBlock(Block newBlock) {
         Map<String, Long> balances = buildConfirmedBalances(chain);
-
         return applyBlockTransactions(newBlock, balances);
     }
 
     private Map<String, Long> buildConfirmedBalances(List<Block> confirmedChain) {
         Map<String, Long> balances = new HashMap<>();
 
-        for (int i = 1; i < confirmedChain.size(); i++) { //salteamos génesis
+        for (int i = 1; i < confirmedChain.size(); i++) {
             Block block = confirmedChain.get(i);
 
             if (!applyBlockTransactions(block, balances)) {
-                // esto no debería pasar si la cadena ya es válida
                 throw new IllegalStateException("Cadena confirmada inválida");
             }
         }
+
         return balances;
     }
 
@@ -329,8 +353,7 @@ public class BlockchainService {
     }
 
     private boolean canApplyTransfer(Transaction tx, Map<String, Long> balances) {
-        long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
-        return senderBalance >= tx.getAmount();
+        return balances.getOrDefault(tx.getFrom(), 0L) >= tx.getAmount();
     }
 
     private void applyTransfer(Transaction tx, Map<String, Long> balances) {
@@ -338,20 +361,30 @@ public class BlockchainService {
         balances.merge(tx.getTo(), tx.getAmount(), Long::sum);
     }
 
-    public boolean isChainValid(List<Block> chain) {
-        if (chain == null || chain.isEmpty()) return false;
-        if (!isValidGenesis(chain.getFirst())) return false;
-        for (int i = 1; i < chain.size(); i++) {
-            if (!isValidNewBlock(chain.get(i), chain.get(i - 1))) {
+    public boolean isChainValid(List<Block> candidateChain) {
+        if (candidateChain == null || candidateChain.isEmpty()) {
+            return false;
+        }
+
+        if (!isValidGenesis(candidateChain.getFirst())) {
+            return false;
+        }
+
+        for (int i = 1; i < candidateChain.size(); i++) {
+            Block currentBlock = candidateChain.get(i);
+            Block previousBlock = candidateChain.get(i - 1);
+
+            if (!isValidNewBlock(currentBlock, previousBlock)) {
                 return false;
             }
         }
 
-        return hasValidBalances(chain); //la cadena mas larga tmb tiene en cuenta el balance
+        return hasValidBalances(candidateChain);
     }
 
     private boolean isValidGenesis(Block genesis) {
         Block expected = createGenesis();
+
         return genesis.getIndex() == expected.getIndex()
                 && genesis.getTimestamp() == expected.getTimestamp()
                 && genesis.getPreviousHash().equals(expected.getPreviousHash())
@@ -361,10 +394,11 @@ public class BlockchainService {
     }
 
     private void removePendingIncludedIn(Block block) {
-        List<String> minedIds = block.getTransactions().stream()
+        List<String> includedIds = block.getTransactions().stream()
                 .map(Transaction::getId)
                 .toList();
-        pendingTransactions.removeIf(tx -> minedIds.contains(tx.getId()));
+
+        pendingTransactions.removeIf(tx -> includedIds.contains(tx.getId()));
     }
 
 
@@ -376,25 +410,93 @@ public class BlockchainService {
         return List.copyOf(chain);
     }
 
-    public long getAvailableBalance(String address) {
-        return getConfirmedBalance(address) - getPendingOutgoingAmount(address);
-    }
-
     private List<Transaction> selectValidPendingTransactionsForNextBlock() {
-        Map<String, Long> balances = buildConfirmedBalances(chain);
-        List<Transaction> selected = new ArrayList<>();
+        Map<String, Long> projectedBalances = buildConfirmedBalances(chain);
+        List<Transaction> selectedTransactions = new ArrayList<>();
 
         for (Transaction tx : pendingTransactions) {
-            if (!tx.isTransfer()) continue;
-            if (!transactionValidator.isValidTransfer(tx)) continue;
-
-            long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
-            if (senderBalance >= tx.getAmount()) {
-                selected.add(tx);
-                applyTransfer(tx, balances);
+            if (canBeIncludedInNextBlock(tx, projectedBalances)) {
+                selectedTransactions.add(tx);
+                applyTransfer(tx, projectedBalances);
             }
         }
-        return selected;
+
+        return selectedTransactions;
+    }
+
+    private boolean canBeIncludedInNextBlock(Transaction tx, Map<String, Long> projectedBalances) {
+        if (!tx.isTransfer()) {
+            return false;
+        }
+
+        if (!transactionValidator.isValidTransfer(tx)) {
+            return false;
+        }
+
+        return canApplyTransfer(tx, projectedBalances);
+    }
+
+    private void ensureTransferTransaction(Transaction tx) {
+        if (tx == null || !tx.isTransfer()) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
+        }
+    }
+
+    private void ensureValidTransfer(Transaction tx) {
+        if (!transactionValidator.isValidTransfer(tx)) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
+        }
+    }
+
+    private void ensureNotDuplicatedInMempool(Transaction tx) {
+        if (isAlreadyInMempool(tx)) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
+        }
+    }
+
+    private void ensureNotAlreadyConfirmed(Transaction tx) {
+        if (transactionAlreadyInChain(tx)) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción ya confirmada");
+        }
+    }
+
+    private void ensureSufficientAvailableBalance(Transaction tx) {
+        if (getAvailableBalance(tx.getFrom()) < tx.getAmount()) {
+            throw new IllegalArgumentException("INVALID_TRANSACTION: Balance insuficiente");
+        }
+    }
+
+    private boolean isAlreadyInMempool(Transaction tx) {
+        return pendingTransactions.stream()
+                .anyMatch(existing -> existing.getId().equals(tx.getId()));
+    }
+
+    private void tryAutoMine() {
+        if (pendingTransactions.size() < autoMineThreshold) {
+            return;
+        }
+
+        log.info(
+                "Threshold alcanzado ({}). Minando automáticamente...",
+                autoMineThreshold
+        );
+
+        Block minedBlock = mineBlockInternal("auto");
+        broadcastBlockIfPossible(minedBlock);
+    }
+
+    private void broadcastBlockIfPossible(Block block) {
+        if (peerService != null) {
+            peerService.broadcastBlock(block);
+        }
+    }
+
+    private int safeBlockIndex(Block block) {
+        return block != null ? block.getIndex() : -1;
+    }
+
+    private boolean isLongerThanCurrentChain(List<Block> newChain) {
+        return newChain != null && newChain.size() > chain.size();
     }
 
 
