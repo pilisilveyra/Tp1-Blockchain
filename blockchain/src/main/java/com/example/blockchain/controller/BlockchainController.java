@@ -49,41 +49,16 @@ public class BlockchainController {
 
     @PostMapping("/transactions")
     public ResponseEntity<Map<String, Object>> addTransaction(@RequestBody TransactionDto dto) {
-        if (dto.id() == null || dto.id().isBlank()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: id inválido");
+        if (dto == null) {
+            throw new IllegalArgumentException("INVALID_REQUEST: body requerido");
         }
-        if (!"TRANSFER".equalsIgnoreCase(dto.type())) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: Tipo inválido");
-        }
-        if (dto.from() == null || dto.from().isBlank()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: from requerido");
-        }
-        if (dto.to() == null || dto.to().isBlank()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: to requerido");
-        }
-        if (dto.from().equalsIgnoreCase(dto.to())) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: from y to no pueden ser iguales");
-        }
-        if (dto.amount() <= 0) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: amount debe ser mayor a 0");
-        }
-        if (dto.timestamp() <= 0) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: timestamp inválido");
-        }
-        if (dto.publicKey() == null || dto.publicKey().isBlank()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: publicKey requerida");
-        }
-        if (dto.signature() == null || dto.signature().isBlank()) {
-            throw new IllegalArgumentException("INVALID_TRANSACTION: signature requerida");
-        }
-
         Transaction tx = BlockMapper.toModel(dto);
         blockchainService.addPendingTransaction(tx);
 
         return ResponseEntity.status(202).body(Map.of(
-            "status", "ok",
-            "accepted", true,
-            "txId", tx.getId()
+                "status", "ok",
+                "accepted", true,
+                "txId", tx.getId()
         ));
     }
 

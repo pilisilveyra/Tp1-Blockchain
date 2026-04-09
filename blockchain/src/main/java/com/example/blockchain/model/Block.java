@@ -42,30 +42,6 @@ public class Block {
         return CryptoUtil.sha256(data);
     }
 
-    public boolean hasValidTransactions(long blockReward) {
-        if (index == 0) {
-            return transactions.isEmpty(); // genesis sin transacciones
-        }
-
-        // exactamente una COINBASE y que sea la primera
-        long coinbaseCount = transactions.stream()
-                .filter(tx -> tx.getType() == TransactionType.COINBASE)
-                .count();
-        if (coinbaseCount != 1) return false;
-        if (transactions.get(0).getType() != TransactionType.COINBASE) return false;
-
-        // Validar la COINBASE
-        Transaction coinbase = transactions.get(0);
-        if (!"SYSTEM".equals(coinbase.getFrom())) return false;
-        if (coinbase.getAmount() != blockReward) return false;
-        if (coinbase.getTimestamp() != timestamp) return false;
-
-        // Validar todas las TRANSFER
-        return transactions.stream()
-                .filter(tx -> tx.getType() == TransactionType.TRANSFER)
-                .allMatch(Transaction::isValid);
-    }
-
      public void mineBlock(int difficulty) {
         String target = "0".repeat(difficulty);
 
@@ -75,24 +51,8 @@ public class Block {
         }
     }
 
-    public boolean isValid(int difficulty, long blockReward) {
-        if (index < 0) return false;
-        if (timestamp <= 0) return false;
-        if (previousHash == null || previousHash.isBlank()) return false;
-        if (hash == null || hash.isBlank()) return false;
-        if (nonce < 0) return false;
-
-        String target = "0".repeat(difficulty);
-
-        if (!hash.equals(calculateHash())) return false;
-        if (!hash.startsWith(target)) return false;
-
-        // validacion del bloque genesis
-
-        if (index == 0) {
-            return "0".equals(previousHash) && transactions.isEmpty();
-        }
-        return hasValidTransactions(blockReward);
+    public boolean isGenesis() {
+        return index == 0;
     }
 
 

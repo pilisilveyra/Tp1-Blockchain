@@ -55,54 +55,11 @@ public class Transaction {
         this.signature = signature;
     }
 
-    public boolean isValid() {
-        return switch (type) {
-            case TRANSFER -> isValidTransfer();
-            case COINBASE -> isValidCoinbase();
-        };
+    public boolean isCoinbase() {
+        return type == TransactionType.COINBASE;
     }
-
-    private boolean isUuidV4(String value) {
-        try {
-            UUID uuid = UUID.fromString(value);
-            return uuid.version() == 4;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-
-    private boolean isValidTransfer() {
-        if (id == null || id.isBlank()) return false;
-        if (from == null || from.isBlank()) return false;
-        if (to == null || to.isBlank()) return false;
-        if (from.equals(to)) return false;
-        if (amount <= 0) return false;
-        if (timestamp <= 0) return false;
-        if (publicKey == null || publicKey.isBlank()) return false;
-        if (signature == null || signature.isBlank()) return false;
-        if (!isUuidV4(id)) return false;
-
-        // La address del from debe coincidir con la derivada de la publicKey
-        try {
-            String derivedAddress = CryptoUtil.addressFromPublicKey(publicKey);
-            if (!from.equalsIgnoreCase(derivedAddress)) return false;
-
-            return CryptoUtil.verifySignature(publicKey, canonicalPayload(), signature);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean isValidCoinbase() {
-        if (!isUuidV4(id)) return false;
-        return id != null && !id.isBlank()
-            && "SYSTEM".equals(from)
-            && to != null && !to.isBlank()
-            && amount > 0
-            && timestamp > 0
-            && isZeroValue(publicKey)
-            && isZeroValue(signature);
+    public boolean isTransfer() {
+        return type == TransactionType.TRANSFER;
     }
 
     @Override
@@ -115,10 +72,6 @@ public class Transaction {
     @Override
     public int hashCode() {
         return id != null ? id.hashCode() : 0;
-    }
-
-    private boolean isZeroValue(String value) {
-        return value != null && value.chars().allMatch(c -> c == '0');
     }
 
     public String canonicalPayload() {

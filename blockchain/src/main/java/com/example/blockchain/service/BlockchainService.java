@@ -4,6 +4,8 @@ import com.example.blockchain.model.Block;
 import com.example.blockchain.model.Transaction;
 import com.example.blockchain.model.TransactionType;
 import com.example.blockchain.util.GenesisParams;
+import com.example.blockchain.validator.BlockValidator;
+import com.example.blockchain.validator.TransactionValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +27,8 @@ public class BlockchainService {
     private final long blockReward;
     private final int autoMineThreshold;
     private final WalletService walletService;
+    private final TransactionValidator transactionValidator = new TransactionValidator();
+    private final BlockValidator blockValidator = new BlockValidator();
 
     // PeerService se inyecta después para evitar dependencia circular
     private PeerService peerService;
@@ -61,30 +65,23 @@ public class BlockchainService {
     }
 
     public synchronized void addPendingTransaction(Transaction tx) {
-        if (tx.getType() == TransactionType.COINBASE) {
+        if (tx == null || !tx.isTransfer()) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
-        if (!tx.isValid()) {
+        if (!transactionValidator.isValidTransfer(tx)) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción inválida");
         }
-
-        boolean duplicatedInMempool = pendingTransactions.stream()
-            .anyMatch(existing -> existing.getId().equals(tx.getId()));
-
-        if (duplicatedInMempool) {
+        if (pendingTransactions.stream().anyMatch(existing -> existing.getId().equals(tx.getId()))) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción duplicada en mempool");
         }
-
         if (transactionAlreadyInChain(tx)) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Transacción ya confirmada");
         }
-
-        long balance = getAvailableBalance(tx.getFrom());
-        if (balance < tx.getAmount()) {
+        if (getAvailableBalance(tx.getFrom()) < tx.getAmount()) {
             throw new IllegalArgumentException("INVALID_TRANSACTION: Balance insuficiente");
         }
-
         pendingTransactions.add(tx);
+
         log.info("Tx agregada al mempool. Total: {}", pendingTransactions.size());
 
         // Minado automatico al llegar al threshold
@@ -183,10 +180,9 @@ public class BlockchainService {
 
         for (Transaction tx : snapshot) {
             if (transactionAlreadyInChain(tx)) continue;
-            if (!tx.isValid()) continue;
+            if (!transactionValidator.isValidTransfer(tx)) continue;
 
-            long balance = getAvailableBalance(tx.getFrom());
-            if (balance >= tx.getAmount()) {
+            if (getAvailableBalance(tx.getFrom()) >= tx.getAmount()) {
                 pendingTransactions.add(tx);
             }
         }
@@ -198,15 +194,6 @@ public class BlockchainService {
                 .anyMatch(existing -> existing.getId().equals(tx.getId()));
     }
 
-    private boolean hasSufficientBalance(Transaction tx) {
-        if (tx.getType() != TransactionType.TRANSFER) {
-            return true;
-        }
-        long confirmedBalance = getConfirmedBalance(tx.getFrom());
-        long pendingOutgoing = getPendingOutgoingAmount(tx.getFrom());
-        long availableBalance = confirmedBalance - pendingOutgoing;
-        return availableBalance >= tx.getAmount();
-    }
 
     //recorre toda la cadena y calcula el saldo confirmado
     public long getConfirmedBalance(String address) {
@@ -262,7 +249,7 @@ public class BlockchainService {
         if (!previousBlock.getHash().equals(newBlock.getPreviousHash())) return false;
         if (newBlock.getTimestamp() <= previousBlock.getTimestamp()) return false;
         if (newBlock.getTimestamp() > System.currentTimeMillis() + 120_000) return false;
-        return newBlock.isValid(difficulty, blockReward);
+        return blockValidator.isValidBlockStructure(newBlock, difficulty, blockReward);
     }
 
     private boolean applyBlockTransactions(Block block, Map<String, Long> balances) {
@@ -398,8 +385,8 @@ public class BlockchainService {
         List<Transaction> selected = new ArrayList<>();
 
         for (Transaction tx : pendingTransactions) {
-            if (tx.getType() != TransactionType.TRANSFER) continue;
-            if (!tx.isValid()) continue;
+            if (!tx.isTransfer()) continue;
+            if (!transactionValidator.isValidTransfer(tx)) continue;
 
             long senderBalance = balances.getOrDefault(tx.getFrom(), 0L);
             if (senderBalance >= tx.getAmount()) {
